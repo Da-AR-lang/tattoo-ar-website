@@ -51,6 +51,92 @@ function drawAffineTriangle(
   ctx.restore()
 }
 
+// ─── Marker detection (dark-ink on skin) ────────────────────────────────────
+
+const DETECT_W = 320  // process at reduced resolution for performance
+
+/**
+ * Analyse a video frame and return a 4-point quad [tl,tr,br,bl] in display-space
+ * coordinates around any dark mark drawn on skin.
+ * Returns null when no credible mark is found.
+ */
+function detectMarkerInFrame(
+  video: HTMLVideoElement,
+  detectCanvas: HTMLCanvasElement,
+  displayScale: number,
+  displayOffsetX: number,
+  displayOffsetY: number,
+): { x: number; y: number }[] | null {
+  const vw = video.videoWidth, vh = video.videoHeight
+  if (!vw || !vh || video.readyState < 2) return null
+
+  const ds = DETECT_W / vw             // downsample ratio
+  const dw = DETECT_W
+  const dh = Math.round(vh * ds)
+
+  detectCanvas.width = dw
+  detectCanvas.height = dh
+  const ctx = detectCanvas.getContext('2d', { willReadFrequently: true })!
+  ctx.drawImage(video, 0, 0, dw, dh)
+  const { data } = ctx.getImageData(0, 0, dw, dh)
+
+  // Adaptive threshold: ink must be significantly darker than mean skin tone
+  let sum = 0
+  const total = dw * dh
+  for (let i = 0; i < total; i++) sum += (data[i*4] + data[i*4+1] + data[i*4+2]) / 3
+  const mean = sum / total
+  const threshold = Math.min(mean * 0.42, 75)  // at most 75/255
+
+  // Collect bounding box of dark pixels
+  let minX = dw, maxX = 0, minY = dh, maxY = 0
+  let darkCount = 0
+  for (let y = 0; y < dh; y++) {
+    for (let x = 0; x < dw; x++) {
+      const i = y * dw + x
+      const b = (data[i*4] + data[i*4+1] + data[i*4+2]) / 3
+      if (b < threshold) {
+        darkCount++
+        if (x < minX) minX = x; if (x > maxX) maxX = x
+        if (y < minY) minY = y; if (y > maxY) maxY = y
+      }
+    }
+  }
+
+  const boxW = maxX - minX, boxH = maxY - minY
+
+  // Sanity checks — reject noise, shadows, full-dark frames
+  if (darkCount < 80)              return null  // too few pixels
+  if (darkCount > total * 0.22)    return null  // whole frame is dark
+  if (boxW < 18 || boxH < 18)     return null  // too small
+  if (boxW > dw * 0.88 || boxH > dh * 0.88) return null  // fills frame
+  if (boxW / boxH > 6 || boxH / boxW > 6)   return null  // extreme aspect
+
+  // Convert bounding box (detect-space → display-space) with a small padding
+  const pad = 0.12 * Math.max(boxW, boxH)
+  const toD = (px: number, py: number) => ({
+    x: ((px / ds) * displayScale) + displayOffsetX,
+    y: ((py / ds) * displayScale) + displayOffsetY,
+  })
+  return [
+    toD(minX - pad, minY - pad),
+    toD(maxX + pad, minY - pad),
+    toD(maxX + pad, maxY + pad),
+    toD(minX - pad, maxY + pad),
+  ]
+}
+
+/** Low-pass smooth a quad toward a new detection (alpha = responsiveness). */
+function smoothQuad(
+  prev: { x: number; y: number }[],
+  next: { x: number; y: number }[],
+  alpha = 0.35,
+): { x: number; y: number }[] {
+  return next.map((p, i) => ({
+    x: prev[i].x + alpha * (p.x - prev[i].x),
+    y: prev[i].y + alpha * (p.y - prev[i].y),
+  }))
+}
+
 // ─── Body part definitions ────────────────────────────────────────────────────
 const BODY_PARTS = [
   { id: 'hand',        label: '手背',   mode: 'hand',  icon: '✋' },
@@ -63,6 +149,7 @@ const BODY_PARTS = [
   { id: 'back',        label: '背部',   mode: 'manual', icon: '🔲' },
   { id: 'ankle',       label: '腳踝',   mode: 'pose',  icon: '🦵' },
   { id: 'manual',      label: '自由拖曳', mode: 'manual', icon: '🖐️' },
+  { id: 'marker',      label: '錨點偵測', mode: 'marker', icon: '✏️' },
 ] as const
 
 type BodyPartId = typeof BODY_PARTS[number]['id']
@@ -78,6 +165,9 @@ export default function ARClient() {
   const detectorRef = useRef<unknown>(null)
   const tattooImgRef = useRef<HTMLImageElement | null>(null)
   const offscreenRef = useRef<HTMLCanvasElement | null>(null)
+  const detectCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const markerQuadRef = useRef<{ x: number; y: number }[] | null>(null)
+  const markerLostFrames = useRef(0)
 
   // Manual drag state
   const manualPosRef = useRef({ x: 0.5, y: 0.5 })
@@ -326,6 +416,28 @@ export default function ARClient() {
       const cy = manualPosRef.current.y * dH
       drawTattoo(ctx, cx, cy, dW * 0.2, 0)
       setDetectionStatus('detected')
+    } else if (currentPart.mode === 'marker') {
+      // ── Ink-marker detection ──────────────────────────────────────────────
+      if (!detectCanvasRef.current) detectCanvasRef.current = document.createElement('canvas')
+      const { scale, offsetX, offsetY } = getDisplayTransform(video)
+      const raw = detectMarkerInFrame(video, detectCanvasRef.current, scale, offsetX, offsetY)
+
+      if (raw) {
+        markerLostFrames.current = 0
+        const prev = markerQuadRef.current
+        markerQuadRef.current = prev ? smoothQuad(prev, raw) : raw
+        drawPerspectiveTattoo(ctx, markerQuadRef.current)
+        setDetectionStatus('detected')
+      } else {
+        markerLostFrames.current++
+        // Keep drawing last known quad for ~20 frames before giving up
+        if (markerQuadRef.current && markerLostFrames.current < 20) {
+          drawPerspectiveTattoo(ctx, markerQuadRef.current)
+        } else {
+          markerQuadRef.current = null
+          setDetectionStatus('lost')
+        }
+      }
     } else {
       try {
         if (video.readyState >= 2) {
@@ -334,7 +446,7 @@ export default function ARClient() {
       } catch (_) { /* ignore */ }
     }
     animFrameRef.current = requestAnimationFrame(runDetection)
-  }, [currentPart, drawTattoo, getDisplayTransform])
+  }, [currentPart, drawTattoo, drawPerspectiveTattoo, getDisplayTransform])
 
   // ─── Start camera + load detector ──────────────────────────────────────────
   const startCamera = useCallback(async () => {
@@ -464,8 +576,13 @@ export default function ARClient() {
         })
         detectorRef.current = pose
       } else {
-        // Manual mode — no detector needed
+        // Manual / Marker mode — no external detector needed
         detectorRef.current = { send: async () => {} }
+        if (currentPart.mode === 'marker') {
+          // reset smoothing state on (re)start
+          markerQuadRef.current = null
+          markerLostFrames.current = 0
+        }
       }
 
       setIsStarted(true)
@@ -580,6 +697,10 @@ export default function ARClient() {
   // ─── Status badge ───────────────────────────────────────────────────────────
   const statusBadge = () => {
     if (currentPart.mode === 'manual') return { text: '拖曳移動刺青位置', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' }
+    if (currentPart.mode === 'marker') {
+      if (detectionStatus === 'detected') return { text: '已偵測錨點', color: 'bg-green-500/20 text-green-400 border-green-500/30' }
+      return { text: '請在皮膚上畫一個封閉圖形', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30' }
+    }
     if (detectionStatus === 'detected') return { text: `已偵測${currentPart.label}`, color: 'bg-green-500/20 text-green-400 border-green-500/30' }
     return { text: `請將${currentPart.label}對準鏡頭`, color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' }
   }
@@ -743,6 +864,7 @@ export default function ARClient() {
               {currentPart.mode === 'hand' && '使用手部追蹤，請將手背朝向鏡頭'}
               {currentPart.mode === 'pose' && '使用全身追蹤，請確保該部位清晰可見'}
               {currentPart.mode === 'manual' && '自由模式：開啟相機後用手指/滑鼠拖曳刺青到想要的位置'}
+              {currentPart.mode === 'marker' && '用深色筆在皮膚上畫一個封閉圖形（方形或圓形），相機偵測到後刺青自動貼合並跟隨透視變化'}
             </p>
           </div>
         </div>

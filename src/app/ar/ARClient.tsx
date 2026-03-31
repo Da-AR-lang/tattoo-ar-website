@@ -142,8 +142,8 @@ export default function ARClient() {
     return { scale, offsetX, offsetY, dW, dH }
   }, [])
 
-  // ─── Build offscreen canvas (white bg + tattoo) for multiply blend ──────────
-  const buildOffscreen = useCallback((w: number, h: number, rotation: number): HTMLCanvasElement | null => {
+  // ─── Build offscreen canvas (no rotation — avoids clipping at edges) ─────────
+  const buildOffscreen = useCallback((w: number, h: number): HTMLCanvasElement | null => {
     if (!tattooImgRef.current) return null
     const img = tattooImgRef.current
     if (!offscreenRef.current) offscreenRef.current = document.createElement('canvas')
@@ -152,11 +152,7 @@ export default function ARClient() {
     off.height = Math.max(1, Math.round(h))
     const offCtx = off.getContext('2d')!
     offCtx.clearRect(0, 0, off.width, off.height)
-    offCtx.save()
-    offCtx.translate(off.width / 2, off.height / 2)
-    offCtx.rotate(rotation)
-    offCtx.drawImage(img, -off.width / 2, -off.height / 2, off.width, off.height)
-    offCtx.restore()
+    offCtx.drawImage(img, 0, 0, off.width, off.height)
     return off
   }, []) // reads via refs — stable
 
@@ -170,12 +166,13 @@ export default function ARClient() {
     const img = tattooImgRef.current
     const w = sizePx * tattooScaleRef.current
     const h = (img.naturalHeight / img.naturalWidth) * w
-    const off = buildOffscreen(w, h, tattooRotationRef.current)
+    const off = buildOffscreen(w, h)
     if (!off) return
     ctx.save()
     ctx.globalAlpha = tattooOpacityRef.current
     ctx.translate(cx, cy)
-    ctx.rotate(angle)
+    // Combine landmark angle + user rotation here (display ctx is large — no clipping)
+    ctx.rotate(angle + tattooRotationRef.current)
     ctx.drawImage(off, -w / 2, -h / 2, w, h)
     ctx.restore()
   }, [buildOffscreen]) // reads latest values via refs
@@ -193,23 +190,26 @@ export default function ARClient() {
     const ih = img.naturalHeight
     if (iw === 0 || ih === 0) return
 
-    // Pre-rotate image onto offscreen (transparent bg)
+    // Draw image onto offscreen without rotation (rotation encoded in srcQuad below)
     if (!offscreenRef.current) offscreenRef.current = document.createElement('canvas')
     const off = offscreenRef.current
     off.width = iw
     off.height = ih
     const offCtx = off.getContext('2d')!
     offCtx.clearRect(0, 0, iw, ih)
-    offCtx.save()
-    offCtx.translate(iw / 2, ih / 2)
-    offCtx.rotate(tattooRotationRef.current)
-    offCtx.drawImage(img, -iw / 2, -ih / 2, iw, ih)
-    offCtx.restore()
+    offCtx.drawImage(img, 0, 0, iw, ih)
 
-    // Source quad corners (image space)
+    // Rotate source quad corners around image center — avoids offscreen clipping
+    const rot = tattooRotationRef.current
+    const cos = Math.cos(rot), sin = Math.sin(rot)
+    const mx = iw / 2, my = ih / 2
+    const rotPt = (x: number, y: number) => ({
+      x: mx + (x - mx) * cos - (y - my) * sin,
+      y: my + (x - mx) * sin + (y - my) * cos,
+    })
     const srcQuad = [
-      { x: 0, y: 0 }, { x: iw, y: 0 },
-      { x: iw, y: ih }, { x: 0, y: ih },
+      rotPt(0, 0), rotPt(iw, 0),
+      rotPt(iw, ih), rotPt(0, ih),
     ]
 
     ctx.save()

@@ -151,8 +151,7 @@ export default function ARClient() {
     off.width = Math.max(1, Math.round(w))
     off.height = Math.max(1, Math.round(h))
     const offCtx = off.getContext('2d')!
-    offCtx.fillStyle = '#ffffff'
-    offCtx.fillRect(0, 0, off.width, off.height)
+    offCtx.clearRect(0, 0, off.width, off.height)
     offCtx.save()
     offCtx.translate(off.width / 2, off.height / 2)
     offCtx.rotate(rotation)
@@ -161,7 +160,7 @@ export default function ARClient() {
     return off
   }, []) // reads via refs — stable
 
-  // ─── Draw tattoo on canvas (anchor-based, with multiply blend) ──────────────
+  // ─── Draw tattoo on canvas (anchor-based) ───────────────────────────────────
   const drawTattoo = useCallback((
     ctx: CanvasRenderingContext2D,
     cx: number, cy: number,
@@ -175,7 +174,6 @@ export default function ARClient() {
     if (!off) return
     ctx.save()
     ctx.globalAlpha = tattooOpacityRef.current
-    ctx.globalCompositeOperation = 'multiply'
     ctx.translate(cx, cy)
     ctx.rotate(angle)
     ctx.drawImage(off, -w / 2, -h / 2, w, h)
@@ -195,14 +193,13 @@ export default function ARClient() {
     const ih = img.naturalHeight
     if (iw === 0 || ih === 0) return
 
-    // Build offscreen with white bg so multiply removes white areas
+    // Pre-rotate image onto offscreen (transparent bg)
     if (!offscreenRef.current) offscreenRef.current = document.createElement('canvas')
     const off = offscreenRef.current
     off.width = iw
     off.height = ih
     const offCtx = off.getContext('2d')!
-    offCtx.fillStyle = '#ffffff'
-    offCtx.fillRect(0, 0, iw, ih)
+    offCtx.clearRect(0, 0, iw, ih)
     offCtx.save()
     offCtx.translate(iw / 2, ih / 2)
     offCtx.rotate(tattooRotationRef.current)
@@ -217,7 +214,6 @@ export default function ARClient() {
 
     ctx.save()
     ctx.globalAlpha = tattooOpacityRef.current
-    ctx.globalCompositeOperation = 'multiply'
 
     const n = subdivisions
     for (let i = 0; i < n; i++) {
@@ -601,7 +597,7 @@ export default function ARClient() {
         <canvas
           ref={overlayRef}
           className={`absolute inset-0 w-full h-full ${mirrored ? 'scale-x-[-1]' : ''} ${currentPart.mode === 'manual' ? 'cursor-move' : 'pointer-events-none'}`}
-          style={{ display: isStarted ? 'block' : 'none' }}
+          style={{ display: isStarted ? 'block' : 'none', mixBlendMode: 'multiply' }}
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}
           onMouseUp={() => { isDraggingRef.current = false }}

@@ -676,9 +676,9 @@ export default function ARClient() {
   }
   const handleCanvasTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
     if (currentPart.mode !== 'manual') return
-    const t = e.touches[0]
-    lastTouchRef.current = { x: t.clientX, y: t.clientY }
     isDraggingRef.current = true
+    const t = e.touches[0]
+    updateManualPos(t.clientX, t.clientY, e.currentTarget)
   }
   const handleCanvasTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
     if (!isDraggingRef.current) return
@@ -688,8 +688,11 @@ export default function ARClient() {
 
   const updateManualPos = (clientX: number, clientY: number, el: HTMLElement) => {
     const rect = el.getBoundingClientRect()
+    // Canvas has CSS scale-x-[-1] when mirrored, so flip x to match visual position
+    let x = (clientX - rect.left) / rect.width
+    if (mirrored) x = 1 - x
     manualPosRef.current = {
-      x: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)),
+      x: Math.max(0, Math.min(1, x)),
       y: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height)),
     }
   }

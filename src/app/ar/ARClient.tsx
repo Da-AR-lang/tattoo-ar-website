@@ -9,6 +9,48 @@ import {
 import type { Tattoo } from '@/lib/types'
 import { useFittingRoomCtx } from '@/context/FittingRoomContext'
 
+// ─── Perspective warp helpers (module-level, no component state) ────────────
+
+function bilerp(
+  pts: { x: number; y: number }[],
+  u: number, v: number
+): { x: number; y: number } {
+  return {
+    x: pts[0].x*(1-u)*(1-v) + pts[1].x*u*(1-v) + pts[2].x*u*v + pts[3].x*(1-u)*v,
+    y: pts[0].y*(1-u)*(1-v) + pts[1].y*u*(1-v) + pts[2].y*u*v + pts[3].y*(1-u)*v,
+  }
+}
+
+/** Draw a triangle from `img` (src space) mapped to `dst` points (canvas space). */
+function drawAffineTriangle(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLCanvasElement,
+  src: { x: number; y: number }[],
+  dst: { x: number; y: number }[]
+) {
+  const [s0, s1, s2] = src
+  const [d0, d1, d2] = dst
+  const det = (s0.x - s2.x) * (s1.y - s2.y) - (s1.x - s2.x) * (s0.y - s2.y)
+  if (Math.abs(det) < 0.5) return
+  // Compute affine matrix mapping image → canvas
+  const a  = ((d0.x - d2.x) * (s1.y - s2.y) - (d1.x - d2.x) * (s0.y - s2.y)) / det
+  const b  = ((d0.y - d2.y) * (s1.y - s2.y) - (d1.y - d2.y) * (s0.y - s2.y)) / det
+  const c  = ((s0.x - s2.x) * (d1.x - d2.x) - (s1.x - s2.x) * (d0.x - d2.x)) / det
+  const dd = ((s0.x - s2.x) * (d1.y - d2.y) - (s1.x - s2.x) * (d0.y - d2.y)) / det
+  const e  = d0.x - a * s0.x - c * s0.y
+  const f  = d0.y - b * s0.x - dd * s0.y
+  ctx.save()
+  ctx.beginPath()
+  ctx.moveTo(d0.x, d0.y)
+  ctx.lineTo(d1.x, d1.y)
+  ctx.lineTo(d2.x, d2.y)
+  ctx.closePath()
+  ctx.clip()
+  ctx.transform(a, b, c, dd, e, f)
+  ctx.drawImage(img, 0, 0)
+  ctx.restore()
+}
+
 // ─── Body part definitions ────────────────────────────────────────────────────
 const BODY_PARTS = [
   { id: 'hand',        label: '手背',   mode: 'hand',  icon: '✋' },
@@ -35,6 +77,7 @@ export default function ARClient() {
   const animFrameRef = useRef<number>(0)
   const detectorRef = useRef<unknown>(null)
   const tattooImgRef = useRef<HTMLImageElement | null>(null)
+  const offscreenRef = useRef<HTMLCanvasElement | null>(null)
 
   // Manual drag state
   const manualPosRef = useRef({ x: 0.5, y: 0.5 })
@@ -99,7 +142,26 @@ export default function ARClient() {
     return { scale, offsetX, offsetY, dW, dH }
   }, [])
 
-  // ─── Draw tattoo on canvas ──────────────────────────────────────────────────
+  // ─── Build offscreen canvas (white bg + tattoo) for multiply blend ──────────
+  const buildOffscreen = useCallback((w: number, h: number, rotation: number): HTMLCanvasElement | null => {
+    if (!tattooImgRef.current) return null
+    const img = tattooImgRef.current
+    if (!offscreenRef.current) offscreenRef.current = document.createElement('canvas')
+    const off = offscreenRef.current
+    off.width = Math.max(1, Math.round(w))
+    off.height = Math.max(1, Math.round(h))
+    const offCtx = off.getContext('2d')!
+    offCtx.fillStyle = '#ffffff'
+    offCtx.fillRect(0, 0, off.width, off.height)
+    offCtx.save()
+    offCtx.translate(off.width / 2, off.height / 2)
+    offCtx.rotate(rotation)
+    offCtx.drawImage(img, -off.width / 2, -off.height / 2, off.width, off.height)
+    offCtx.restore()
+    return off
+  }, []) // reads via refs — stable
+
+  // ─── Draw tattoo on canvas (anchor-based, with multiply blend) ──────────────
   const drawTattoo = useCallback((
     ctx: CanvasRenderingContext2D,
     cx: number, cy: number,
@@ -109,13 +171,69 @@ export default function ARClient() {
     const img = tattooImgRef.current
     const w = sizePx * tattooScaleRef.current
     const h = (img.naturalHeight / img.naturalWidth) * w
+    const off = buildOffscreen(w, h, tattooRotationRef.current)
+    if (!off) return
     ctx.save()
     ctx.globalAlpha = tattooOpacityRef.current
+    ctx.globalCompositeOperation = 'multiply'
     ctx.translate(cx, cy)
-    ctx.rotate(angle + tattooRotationRef.current)
-    ctx.drawImage(img, -w / 2, -h / 2, w, h)
+    ctx.rotate(angle)
+    ctx.drawImage(off, -w / 2, -h / 2, w, h)
     ctx.restore()
-  }, []) // reads latest values via refs — no deps needed
+  }, [buildOffscreen]) // reads latest values via refs
+
+  // ─── Draw tattoo warped into a perspective quad (InkHunter-style) ───────────
+  // dstQuad = [tl, tr, br, bl] in canvas pixel coords
+  const drawPerspectiveTattoo = useCallback((
+    ctx: CanvasRenderingContext2D,
+    dstQuad: { x: number; y: number }[],
+    subdivisions = 8
+  ) => {
+    if (!tattooImgRef.current) return
+    const img = tattooImgRef.current
+    const iw = img.naturalWidth
+    const ih = img.naturalHeight
+    if (iw === 0 || ih === 0) return
+
+    // Build offscreen with white bg so multiply removes white areas
+    if (!offscreenRef.current) offscreenRef.current = document.createElement('canvas')
+    const off = offscreenRef.current
+    off.width = iw
+    off.height = ih
+    const offCtx = off.getContext('2d')!
+    offCtx.fillStyle = '#ffffff'
+    offCtx.fillRect(0, 0, iw, ih)
+    offCtx.save()
+    offCtx.translate(iw / 2, ih / 2)
+    offCtx.rotate(tattooRotationRef.current)
+    offCtx.drawImage(img, -iw / 2, -ih / 2, iw, ih)
+    offCtx.restore()
+
+    // Source quad corners (image space)
+    const srcQuad = [
+      { x: 0, y: 0 }, { x: iw, y: 0 },
+      { x: iw, y: ih }, { x: 0, y: ih },
+    ]
+
+    ctx.save()
+    ctx.globalAlpha = tattooOpacityRef.current
+    ctx.globalCompositeOperation = 'multiply'
+
+    const n = subdivisions
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const u0 = j / n, u1 = (j + 1) / n
+        const v0 = i / n, v1 = (i + 1) / n
+        const s00 = bilerp(srcQuad, u0, v0), s10 = bilerp(srcQuad, u1, v0)
+        const s11 = bilerp(srcQuad, u1, v1), s01 = bilerp(srcQuad, u0, v1)
+        const d00 = bilerp(dstQuad, u0, v0), d10 = bilerp(dstQuad, u1, v0)
+        const d11 = bilerp(dstQuad, u1, v1), d01 = bilerp(dstQuad, u0, v1)
+        drawAffineTriangle(ctx, off, [s00, s10, s11], [d00, d10, d11])
+        drawAffineTriangle(ctx, off, [s00, s11, s01], [d00, d11, d01])
+      }
+    }
+    ctx.restore()
+  }, []) // reads all via refs — stable
 
   // ─── Pose landmark → anchor calculation ────────────────────────────────────
   const getPoseAnchor = useCallback((
@@ -271,13 +389,42 @@ export default function ARClient() {
           ctx.clearRect(0, 0, dW, dH)
           if (results.multiHandLandmarks?.length) {
             setDetectionStatus('detected')
-            const anchor = getHandAnchor(results.multiHandLandmarks[0], W, H, selectedPart)
-            if (anchor) {
-              ctx.save()
-              ctx.translate(offsetX, offsetY)
-              ctx.scale(scale, scale)
-              drawTattoo(ctx, anchor.cx, anchor.cy, anchor.size, anchor.angle)
-              ctx.restore()
+            const lm = results.multiHandLandmarks[0]
+
+            if (selectedPart === 'hand') {
+              // ── Perspective quad from hand landmarks (InkHunter-style) ──
+              const toD = (i: number) => ({
+                x: lm[i].x * W * scale + offsetX,
+                y: lm[i].y * H * scale + offsetY,
+              })
+              const p5 = toD(5), p17 = toD(17), p0 = toD(0)
+              // Knuckle-to-knuckle vector
+              const kx = p17.x - p5.x, ky = p17.y - p5.y
+              const kLen = Math.sqrt(kx * kx + ky * ky) || 1
+              const knx = kx / kLen, kny = ky / kLen
+              // Wrist corners spread along knuckle direction
+              const half = kLen * 0.5
+              const bl = { x: p0.x - knx * half, y: p0.y - kny * half }
+              const br = { x: p0.x + knx * half, y: p0.y + kny * half }
+              // Scale quad from its center
+              const cx = (p5.x + p17.x + br.x + bl.x) / 4
+              const cy = (p5.y + p17.y + br.y + bl.y) / 4
+              const s = tattooScaleRef.current
+              const quad = [p5, p17, br, bl].map(pt => ({
+                x: cx + (pt.x - cx) * s,
+                y: cy + (pt.y - cy) * s,
+              }))
+              drawPerspectiveTattoo(ctx, quad)
+            } else {
+              // Wrist / other hand modes: anchor-based with multiply blend
+              const anchor = getHandAnchor(lm, W, H, selectedPart)
+              if (anchor) {
+                ctx.save()
+                ctx.translate(offsetX, offsetY)
+                ctx.scale(scale, scale)
+                drawTattoo(ctx, anchor.cx, anchor.cy, anchor.size, anchor.angle)
+                ctx.restore()
+              }
             }
           } else {
             setDetectionStatus('lost')
@@ -333,7 +480,7 @@ export default function ARClient() {
     } finally {
       setIsLoading(false)
     }
-  }, [currentPart, selectedPart, drawTattoo, getHandAnchor, getPoseAnchor, runDetection])
+  }, [currentPart, selectedPart, drawTattoo, drawPerspectiveTattoo, getHandAnchor, getPoseAnchor, runDetection])
 
   // ─── Capture photo ──────────────────────────────────────────────────────────
   const capturePhoto = useCallback(() => {

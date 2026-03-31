@@ -100,13 +100,22 @@ function detectMarkerInFrame(
   const rx1 = Math.round(dw * ROI.x1), ry1 = Math.round(dh * ROI.y1)
   const rx2 = Math.round(dw * ROI.x2), ry2 = Math.round(dh * ROI.y2)
 
+  // BFS — find largest connected green cluster seeded from inside ROI
   const visited = new Uint8Array(total)
   const queue = new Int32Array(total)
-  let best: { minX: number; maxX: number; minY: number; maxY: number; size: number } | null = null
+  type Cluster = {
+    size: number
+    // Diagonal-extreme corners for perspective-correct quad
+    tlX: number; tlY: number   // min(x+y)  → top-left
+    trX: number; trY: number   // max(x-y)  → top-right
+    brX: number; brY: number   // max(x+y)  → bottom-right
+    blX: number; blY: number   // min(x-y)  → bottom-left
+    bw: number; bh: number
+  }
+  let best: Cluster | null = null
 
   for (let start = 0; start < total; start++) {
     if (!darkMap[start] || visited[start]) continue
-    // Only seed BFS from inside the ROI
     const sx = start % dw, sy = (start / dw) | 0
     if (sx < rx1 || sx > rx2 || sy < ry1 || sy > ry2) { visited[start] = 1; continue }
 
@@ -114,6 +123,11 @@ function detectMarkerInFrame(
     queue[tail++] = start
     visited[start] = 1
     let minX = dw, maxX = 0, minY = dh, maxY = 0
+    // Diagonal-extreme tracking (perspective corners)
+    let tlS = Infinity,  tlX = 0, tlY = 0
+    let trS = -Infinity, trX = 0, trY = 0
+    let brS = -Infinity, brX = 0, brY = 0
+    let blS = Infinity,  blX = 0, blY = 0
 
     while (head < tail) {
       const cur = queue[head++]
@@ -121,37 +135,39 @@ function detectMarkerInFrame(
       if (cx < minX) minX = cx; if (cx > maxX) maxX = cx
       if (cy < minY) minY = cy; if (cy > maxY) maxY = cy
 
-      if (cx > 0      && darkMap[cur-1]  && !visited[cur-1])  { visited[cur-1]=1;  queue[tail++]=cur-1  }
-      if (cx < dw-1   && darkMap[cur+1]  && !visited[cur+1])  { visited[cur+1]=1;  queue[tail++]=cur+1  }
-      if (cy > 0      && darkMap[cur-dw] && !visited[cur-dw]) { visited[cur-dw]=1; queue[tail++]=cur-dw }
-      if (cy < dh-1   && darkMap[cur+dw] && !visited[cur+dw]) { visited[cur+dw]=1; queue[tail++]=cur+dw }
+      const s1 = cx + cy, s2 = cx - cy
+      if (s1 < tlS) { tlS = s1; tlX = cx; tlY = cy }
+      if (s2 > trS) { trS = s2; trX = cx; trY = cy }
+      if (s1 > brS) { brS = s1; brX = cx; brY = cy }
+      if (s2 < blS) { blS = s2; blX = cx; blY = cy }
+
+      if (cx > 0    && darkMap[cur-1]  && !visited[cur-1])  { visited[cur-1]=1;  queue[tail++]=cur-1  }
+      if (cx < dw-1 && darkMap[cur+1]  && !visited[cur+1])  { visited[cur+1]=1;  queue[tail++]=cur+1  }
+      if (cy > 0    && darkMap[cur-dw] && !visited[cur-dw]) { visited[cur-dw]=1; queue[tail++]=cur-dw }
+      if (cy < dh-1 && darkMap[cur+dw] && !visited[cur+dw]) { visited[cur+dw]=1; queue[tail++]=cur+dw }
     }
 
     const size = tail
     const bw = maxX - minX, bh = maxY - minY
-    // Accept clusters that are pen-mark-sized (not noise dots, not whole dark background)
     if (size < 15 || size > total * 0.35) continue
     if (bw < 8 || bh < 8) continue
     if (bw > dw * 0.92 || bh > dh * 0.92) continue
-
-    if (!best || size > best.size) best = { minX, maxX, minY, maxY, size }
+    if (!best || size > best.size) best = { size, tlX, tlY, trX, trY, brX, brY, blX, blY, bw, bh }
   }
 
   if (!best) return null
-  const { minX, maxX, minY, maxY } = best
-  const bw = maxX - minX, bh = maxY - minY
-  if (bw / bh > 8 || bh / bw > 8) return null  // absurd aspect ratio
+  if (best.bw / best.bh > 8 || best.bh / best.bw > 8) return null
 
-  const pad = 0.14 * Math.max(bw, bh)
   const toD = (px: number, py: number) => ({
     x: (px / ds) * displayScale + displayOffsetX,
     y: (py / ds) * displayScale + displayOffsetY,
   })
+  // Return perspective-correct 4 corners [TL, TR, BR, BL]
   return [
-    toD(minX - pad, minY - pad),
-    toD(maxX + pad, minY - pad),
-    toD(maxX + pad, maxY + pad),
-    toD(minX - pad, maxY + pad),
+    toD(best.tlX, best.tlY),
+    toD(best.trX, best.trY),
+    toD(best.brX, best.brY),
+    toD(best.blX, best.blY),
   ]
 }
 
@@ -450,10 +466,10 @@ export default function ARClient() {
       setDetectionStatus('detected')
     } else if (currentPart.mode === 'marker') {
       if (lockedQuadRef.current) {
-        // ── Locked: just render, no detection ─────────────────────────────
+        // ── Locked: frozen position, ignore detection ──────────────────────
         drawPerspectiveTattoo(ctx, lockedQuadRef.current)
       } else {
-        // ── Searching: detect within ROI ──────────────────────────────────
+        // ── Live tracking: detect every frame so tattoo follows movement ───
         if (!detectCanvasRef.current) detectCanvasRef.current = document.createElement('canvas')
         const { scale, offsetX, offsetY } = getDisplayTransform(video)
         const raw = detectMarkerInFrame(video, detectCanvasRef.current, scale, offsetX, offsetY)
@@ -461,12 +477,14 @@ export default function ARClient() {
         if (raw) {
           markerLostFrames.current = 0
           const prev = markerQuadRef.current
-          markerQuadRef.current = prev ? smoothQuad(prev, raw) : raw
+          // Higher alpha (0.6) = more responsive tracking
+          markerQuadRef.current = prev ? smoothQuad(prev, raw, 0.6) : raw
           drawPerspectiveTattoo(ctx, markerQuadRef.current)
           setDetectionStatus('detected')
         } else {
           markerLostFrames.current++
-          if (markerQuadRef.current && markerLostFrames.current < 20) {
+          // Hold last position for ~15 frames (handles brief occlusion)
+          if (markerQuadRef.current && markerLostFrames.current < 15) {
             drawPerspectiveTattoo(ctx, markerQuadRef.current)
           } else {
             markerQuadRef.current = null
@@ -789,12 +807,13 @@ export default function ARClient() {
               ))}
               {/* Lock button — appears when detected */}
               {detectionStatus === 'detected' && (
-                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-auto">
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-auto flex flex-col items-center gap-1">
+                  <span className="text-green-400 text-xs font-medium">即時追蹤中</span>
                   <button
                     onClick={() => { lockedQuadRef.current = markerQuadRef.current; setMarkerLocked(true) }}
-                    className="flex items-center gap-1.5 bg-green-500 hover:bg-green-400 text-black font-bold text-xs px-4 py-1.5 rounded-full shadow-lg transition-colors"
+                    className="flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs px-4 py-1.5 rounded-full shadow-lg transition-colors border border-white/20"
                   >
-                    🔒 鎖定
+                    🔒 鎖定（固定位置）
                   </button>
                 </div>
               )}
@@ -958,7 +977,7 @@ export default function ARClient() {
               {currentPart.mode === 'hand' && '使用手部追蹤，請將手背朝向鏡頭'}
               {currentPart.mode === 'pose' && '使用全身追蹤，請確保該部位清晰可見'}
               {currentPart.mode === 'manual' && '自由模式：開啟相機後用手指/滑鼠拖曳刺青到想要的位置'}
-              {currentPart.mode === 'marker' && '準備一張亮綠色貼紙或剪一小塊亮綠色紙貼在皮膚上，對準框框後按鎖定，刺青就會貼合該位置'}
+              {currentPart.mode === 'marker' && '將亮綠色貼紙貼在皮膚上，對準框框，刺青會即時跟著貼紙移動。想固定位置時按「鎖定」'}
             </p>
           </div>
         </div>

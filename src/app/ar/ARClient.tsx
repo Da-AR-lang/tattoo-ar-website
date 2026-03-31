@@ -63,6 +63,11 @@ const DETECT_W = 320  // process at reduced resolution for performance
 // ROI fractions in detect-space (fraction of detect canvas dimensions)
 const ROI = { x1: 0.10, y1: 0.10, x2: 0.90, y2: 0.90 }
 
+/**
+ * Detects a bright-green marker (sticker / cut paper) in the video frame.
+ * Green is reliable because it's far from skin tone and easy to source.
+ * Criteria: G is dominant channel, clearly saturated, not too dark.
+ */
 function detectMarkerInFrame(
   video: HTMLVideoElement,
   detectCanvas: HTMLCanvasElement,
@@ -84,17 +89,11 @@ function detectMarkerInFrame(
   ctx.drawImage(video, 0, 0, dw, dh)
   const { data } = ctx.getImageData(0, 0, dw, dh)
 
-  // Adaptive threshold — more permissive to catch pen marks on various skin tones
-  let sum = 0
-  for (let i = 0; i < total; i++) sum += (data[i*4] + data[i*4+1] + data[i*4+2]) / 3
-  const mean = sum / total
-  const threshold = Math.min(mean * 0.58, 115)
-
-  // Build dark-pixel map
+  // Bright green detection: G dominant, saturated, not too dark
   const darkMap = new Uint8Array(total)
   for (let i = 0; i < total; i++) {
-    const b = (data[i*4] + data[i*4+1] + data[i*4+2]) / 3
-    if (b < threshold) darkMap[i] = 1
+    const r = data[i*4], g = data[i*4+1], b = data[i*4+2]
+    if (g > 80 && g > r * 1.4 && g > b * 1.5 && g - Math.max(r, b) > 35) darkMap[i] = 1
   }
 
   // BFS — find the largest connected dark cluster within ROI only
@@ -741,8 +740,9 @@ export default function ARClient() {
   const statusBadge = () => {
     if (currentPart.mode === 'manual') return { text: '拖曳移動刺青位置', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' }
     if (currentPart.mode === 'marker') {
-      if (detectionStatus === 'detected') return { text: '已偵測錨點', color: 'bg-green-500/20 text-green-400 border-green-500/30' }
-      return { text: '請在皮膚上畫一個封閉圖形', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30' }
+      if (markerLocked) return { text: '已鎖定位置', color: 'bg-green-500/20 text-green-400 border-green-500/30' }
+      if (detectionStatus === 'detected') return { text: '偵測到綠色錨點', color: 'bg-green-500/20 text-green-400 border-green-500/30' }
+      return { text: '請將亮綠色貼紙對準框框', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30' }
     }
     if (detectionStatus === 'detected') return { text: `已偵測${currentPart.label}`, color: 'bg-green-500/20 text-green-400 border-green-500/30' }
     return { text: `請將${currentPart.label}對準鏡頭`, color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' }
@@ -800,8 +800,9 @@ export default function ARClient() {
               )}
               {/* Hint when not detected */}
               {detectionStatus !== 'detected' && (
-                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap">
-                  <span className="text-white/60 text-xs bg-black/40 px-2 py-1 rounded-full">將筆跡對準框內</span>
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded-sm bg-green-400 flex-shrink-0" />
+                  <span className="text-white/70 text-xs bg-black/50 px-2 py-1 rounded-full">將亮綠色貼紙對準框內</span>
                 </div>
               )}
             </div>
@@ -957,7 +958,7 @@ export default function ARClient() {
               {currentPart.mode === 'hand' && '使用手部追蹤，請將手背朝向鏡頭'}
               {currentPart.mode === 'pose' && '使用全身追蹤，請確保該部位清晰可見'}
               {currentPart.mode === 'manual' && '自由模式：開啟相機後用手指/滑鼠拖曳刺青到想要的位置'}
-              {currentPart.mode === 'marker' && '用深色筆在皮膚上畫一個封閉圖形（方形或圓形），相機偵測到後刺青自動貼合並跟隨透視變化'}
+              {currentPart.mode === 'marker' && '準備一張亮綠色貼紙或剪一小塊亮綠色紙貼在皮膚上，對準框框後按鎖定，刺青就會貼合該位置'}
             </p>
           </div>
         </div>

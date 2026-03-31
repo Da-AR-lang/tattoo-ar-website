@@ -70,9 +70,10 @@ function detectMarkerInFrame(
   const vw = video.videoWidth, vh = video.videoHeight
   if (!vw || !vh || video.readyState < 2) return null
 
-  const ds = DETECT_W / vw             // downsample ratio
+  const ds = DETECT_W / vw
   const dw = DETECT_W
   const dh = Math.round(vh * ds)
+  const total = dw * dh
 
   detectCanvas.width = dw
   detectCanvas.height = dh
@@ -80,42 +81,63 @@ function detectMarkerInFrame(
   ctx.drawImage(video, 0, 0, dw, dh)
   const { data } = ctx.getImageData(0, 0, dw, dh)
 
-  // Adaptive threshold: ink must be significantly darker than mean skin tone
+  // Adaptive threshold — more permissive to catch pen marks on various skin tones
   let sum = 0
-  const total = dw * dh
   for (let i = 0; i < total; i++) sum += (data[i*4] + data[i*4+1] + data[i*4+2]) / 3
   const mean = sum / total
-  const threshold = Math.min(mean * 0.42, 75)  // at most 75/255
+  const threshold = Math.min(mean * 0.58, 115)
 
-  // Collect bounding box of dark pixels
-  let minX = dw, maxX = 0, minY = dh, maxY = 0
-  let darkCount = 0
-  for (let y = 0; y < dh; y++) {
-    for (let x = 0; x < dw; x++) {
-      const i = y * dw + x
-      const b = (data[i*4] + data[i*4+1] + data[i*4+2]) / 3
-      if (b < threshold) {
-        darkCount++
-        if (x < minX) minX = x; if (x > maxX) maxX = x
-        if (y < minY) minY = y; if (y > maxY) maxY = y
-      }
-    }
+  // Build dark-pixel map
+  const darkMap = new Uint8Array(total)
+  for (let i = 0; i < total; i++) {
+    const b = (data[i*4] + data[i*4+1] + data[i*4+2]) / 3
+    if (b < threshold) darkMap[i] = 1
   }
 
-  const boxW = maxX - minX, boxH = maxY - minY
+  // BFS — find the largest connected dark cluster in the right size range
+  const visited = new Uint8Array(total)
+  const queue = new Int32Array(total)
+  let best: { minX: number; maxX: number; minY: number; maxY: number; size: number } | null = null
 
-  // Sanity checks — reject noise, shadows, full-dark frames
-  if (darkCount < 80)              return null  // too few pixels
-  if (darkCount > total * 0.22)    return null  // whole frame is dark
-  if (boxW < 18 || boxH < 18)     return null  // too small
-  if (boxW > dw * 0.88 || boxH > dh * 0.88) return null  // fills frame
-  if (boxW / boxH > 6 || boxH / boxW > 6)   return null  // extreme aspect
+  for (let start = 0; start < total; start++) {
+    if (!darkMap[start] || visited[start]) continue
 
-  // Convert bounding box (detect-space → display-space) with a small padding
-  const pad = 0.12 * Math.max(boxW, boxH)
+    let head = 0, tail = 0
+    queue[tail++] = start
+    visited[start] = 1
+    let minX = dw, maxX = 0, minY = dh, maxY = 0
+
+    while (head < tail) {
+      const cur = queue[head++]
+      const cx = cur % dw, cy = (cur / dw) | 0
+      if (cx < minX) minX = cx; if (cx > maxX) maxX = cx
+      if (cy < minY) minY = cy; if (cy > maxY) maxY = cy
+
+      if (cx > 0      && darkMap[cur-1]  && !visited[cur-1])  { visited[cur-1]=1;  queue[tail++]=cur-1  }
+      if (cx < dw-1   && darkMap[cur+1]  && !visited[cur+1])  { visited[cur+1]=1;  queue[tail++]=cur+1  }
+      if (cy > 0      && darkMap[cur-dw] && !visited[cur-dw]) { visited[cur-dw]=1; queue[tail++]=cur-dw }
+      if (cy < dh-1   && darkMap[cur+dw] && !visited[cur+dw]) { visited[cur+dw]=1; queue[tail++]=cur+dw }
+    }
+
+    const size = tail
+    const bw = maxX - minX, bh = maxY - minY
+    // Accept clusters that are pen-mark-sized (not noise dots, not whole dark background)
+    if (size < 15 || size > total * 0.35) continue
+    if (bw < 8 || bh < 8) continue
+    if (bw > dw * 0.92 || bh > dh * 0.92) continue
+
+    if (!best || size > best.size) best = { minX, maxX, minY, maxY, size }
+  }
+
+  if (!best) return null
+  const { minX, maxX, minY, maxY } = best
+  const bw = maxX - minX, bh = maxY - minY
+  if (bw / bh > 8 || bh / bw > 8) return null  // absurd aspect ratio
+
+  const pad = 0.14 * Math.max(bw, bh)
   const toD = (px: number, py: number) => ({
-    x: ((px / ds) * displayScale) + displayOffsetX,
-    y: ((py / ds) * displayScale) + displayOffsetY,
+    x: (px / ds) * displayScale + displayOffsetX,
+    y: (py / ds) * displayScale + displayOffsetY,
   })
   return [
     toD(minX - pad, minY - pad),
@@ -430,13 +452,28 @@ export default function ARClient() {
         setDetectionStatus('detected')
       } else {
         markerLostFrames.current++
-        // Keep drawing last known quad for ~20 frames before giving up
         if (markerQuadRef.current && markerLostFrames.current < 20) {
           drawPerspectiveTattoo(ctx, markerQuadRef.current)
         } else {
           markerQuadRef.current = null
           setDetectionStatus('lost')
         }
+      }
+      // Draw quad outline so user can see what's detected (black = visible through multiply)
+      if (markerQuadRef.current) {
+        const q = markerQuadRef.current
+        ctx.save()
+        ctx.strokeStyle = detectionStatus === 'detected' ? 'rgba(0,0,0,0.7)' : 'rgba(80,0,160,0.6)'
+        ctx.lineWidth = 2
+        ctx.setLineDash([6, 4])
+        ctx.beginPath()
+        ctx.moveTo(q[0].x, q[0].y)
+        ctx.lineTo(q[1].x, q[1].y)
+        ctx.lineTo(q[2].x, q[2].y)
+        ctx.lineTo(q[3].x, q[3].y)
+        ctx.closePath()
+        ctx.stroke()
+        ctx.restore()
       }
     } else {
       try {

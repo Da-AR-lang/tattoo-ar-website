@@ -60,6 +60,9 @@ const DETECT_W = 320  // process at reduced resolution for performance
  * coordinates around any dark mark drawn on skin.
  * Returns null when no credible mark is found.
  */
+// ROI fractions in detect-space (fraction of detect canvas dimensions)
+const ROI = { x1: 0.10, y1: 0.10, x2: 0.90, y2: 0.90 }
+
 function detectMarkerInFrame(
   video: HTMLVideoElement,
   detectCanvas: HTMLCanvasElement,
@@ -94,13 +97,19 @@ function detectMarkerInFrame(
     if (b < threshold) darkMap[i] = 1
   }
 
-  // BFS — find the largest connected dark cluster in the right size range
+  // BFS — find the largest connected dark cluster within ROI only
+  const rx1 = Math.round(dw * ROI.x1), ry1 = Math.round(dh * ROI.y1)
+  const rx2 = Math.round(dw * ROI.x2), ry2 = Math.round(dh * ROI.y2)
+
   const visited = new Uint8Array(total)
   const queue = new Int32Array(total)
   let best: { minX: number; maxX: number; minY: number; maxY: number; size: number } | null = null
 
   for (let start = 0; start < total; start++) {
     if (!darkMap[start] || visited[start]) continue
+    // Only seed BFS from inside the ROI
+    const sx = start % dw, sy = (start / dw) | 0
+    if (sx < rx1 || sx > rx2 || sy < ry1 || sy > ry2) { visited[start] = 1; continue }
 
     let head = 0, tail = 0
     queue[tail++] = start
@@ -190,6 +199,8 @@ export default function ARClient() {
   const detectCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const markerQuadRef = useRef<{ x: number; y: number }[] | null>(null)
   const markerLostFrames = useRef(0)
+  const [markerLocked, setMarkerLocked] = useState(false)
+  const lockedQuadRef = useRef<{ x: number; y: number }[] | null>(null)
 
   // Manual drag state
   const manualPosRef = useRef({ x: 0.5, y: 0.5 })
@@ -439,41 +450,30 @@ export default function ARClient() {
       drawTattoo(ctx, cx, cy, dW * 0.2, 0)
       setDetectionStatus('detected')
     } else if (currentPart.mode === 'marker') {
-      // ── Ink-marker detection ──────────────────────────────────────────────
-      if (!detectCanvasRef.current) detectCanvasRef.current = document.createElement('canvas')
-      const { scale, offsetX, offsetY } = getDisplayTransform(video)
-      const raw = detectMarkerInFrame(video, detectCanvasRef.current, scale, offsetX, offsetY)
-
-      if (raw) {
-        markerLostFrames.current = 0
-        const prev = markerQuadRef.current
-        markerQuadRef.current = prev ? smoothQuad(prev, raw) : raw
-        drawPerspectiveTattoo(ctx, markerQuadRef.current)
-        setDetectionStatus('detected')
+      if (lockedQuadRef.current) {
+        // ── Locked: just render, no detection ─────────────────────────────
+        drawPerspectiveTattoo(ctx, lockedQuadRef.current)
       } else {
-        markerLostFrames.current++
-        if (markerQuadRef.current && markerLostFrames.current < 20) {
+        // ── Searching: detect within ROI ──────────────────────────────────
+        if (!detectCanvasRef.current) detectCanvasRef.current = document.createElement('canvas')
+        const { scale, offsetX, offsetY } = getDisplayTransform(video)
+        const raw = detectMarkerInFrame(video, detectCanvasRef.current, scale, offsetX, offsetY)
+
+        if (raw) {
+          markerLostFrames.current = 0
+          const prev = markerQuadRef.current
+          markerQuadRef.current = prev ? smoothQuad(prev, raw) : raw
           drawPerspectiveTattoo(ctx, markerQuadRef.current)
+          setDetectionStatus('detected')
         } else {
-          markerQuadRef.current = null
-          setDetectionStatus('lost')
+          markerLostFrames.current++
+          if (markerQuadRef.current && markerLostFrames.current < 20) {
+            drawPerspectiveTattoo(ctx, markerQuadRef.current)
+          } else {
+            markerQuadRef.current = null
+            setDetectionStatus('lost')
+          }
         }
-      }
-      // Draw quad outline so user can see what's detected (black = visible through multiply)
-      if (markerQuadRef.current) {
-        const q = markerQuadRef.current
-        ctx.save()
-        ctx.strokeStyle = detectionStatus === 'detected' ? 'rgba(0,0,0,0.7)' : 'rgba(80,0,160,0.6)'
-        ctx.lineWidth = 2
-        ctx.setLineDash([6, 4])
-        ctx.beginPath()
-        ctx.moveTo(q[0].x, q[0].y)
-        ctx.lineTo(q[1].x, q[1].y)
-        ctx.lineTo(q[2].x, q[2].y)
-        ctx.lineTo(q[3].x, q[3].y)
-        ctx.closePath()
-        ctx.stroke()
-        ctx.restore()
       }
     } else {
       try {
@@ -676,6 +676,9 @@ export default function ARClient() {
       videoRef.current.srcObject = null
     }
     detectorRef.current = null
+    markerQuadRef.current = null
+    lockedQuadRef.current = null
+    setMarkerLocked(false)
     setIsStarted(false)
     setDetectionStatus('none')
   }, [])
@@ -766,6 +769,56 @@ export default function ARClient() {
           onTouchMove={handleCanvasTouchMove}
           onTouchEnd={() => { isDraggingRef.current = false }}
         />
+
+        {/* Marker mode: targeting box + lock button */}
+        {isStarted && currentPart.mode === 'marker' && !markerLocked && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div
+              className={`relative transition-colors duration-300 ${
+                detectionStatus === 'detected'
+                  ? 'border-2 border-green-400'
+                  : 'border-2 border-dashed border-white/40'
+              }`}
+              style={{ width: '65%', height: '65%' }}
+            >
+              {/* Corner marks */}
+              {[['top-0 left-0','border-t-2 border-l-2'],['top-0 right-0','border-t-2 border-r-2'],
+                ['bottom-0 left-0','border-b-2 border-l-2'],['bottom-0 right-0','border-b-2 border-r-2']
+              ].map(([pos, border], i) => (
+                <div key={i} className={`absolute w-4 h-4 ${pos} ${border} ${detectionStatus === 'detected' ? 'border-green-400' : 'border-white/70'}`} />
+              ))}
+              {/* Lock button — appears when detected */}
+              {detectionStatus === 'detected' && (
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-auto">
+                  <button
+                    onClick={() => { lockedQuadRef.current = markerQuadRef.current; setMarkerLocked(true) }}
+                    className="flex items-center gap-1.5 bg-green-500 hover:bg-green-400 text-black font-bold text-xs px-4 py-1.5 rounded-full shadow-lg transition-colors"
+                  >
+                    🔒 鎖定
+                  </button>
+                </div>
+              )}
+              {/* Hint when not detected */}
+              {detectionStatus !== 'detected' && (
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                  <span className="text-white/60 text-xs bg-black/40 px-2 py-1 rounded-full">將筆跡對準框內</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Locked indicator + unlock button */}
+        {isStarted && currentPart.mode === 'marker' && markerLocked && (
+          <div className="absolute top-16 right-4">
+            <button
+              onClick={() => { lockedQuadRef.current = null; markerQuadRef.current = null; setMarkerLocked(false); setDetectionStatus('lost') }}
+              className="flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs px-3 py-1.5 rounded-full transition-colors"
+            >
+              🔓 解除鎖定
+            </button>
+          </div>
+        )}
 
         {/* Start screen */}
         {!isStarted && (

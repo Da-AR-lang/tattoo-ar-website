@@ -178,7 +178,7 @@ export default function ARClient() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedTattoo, setSelectedTattoo] = useState<Tattoo | null>(tattoos[0] ?? null)
-  const [selectedPart, setSelectedPart] = useState<BodyPartId>('hand')
+  const [selectedPart, setSelectedPart] = useState<BodyPartId>('manual')
   const [tattooScale, setTattooScale] = useState(1.0)
   const [tattooOpacity, setTattooOpacity] = useState(0.85)
   const [tattooRotation, setTattooRotation] = useState(0) // degrees
@@ -840,7 +840,7 @@ export default function ARClient() {
             <PersonStanding size={16} className="text-[#c9a84c]" /> 選擇刺青部位
           </h3>
           <div className="grid grid-cols-2 gap-2">
-            {BODY_PARTS.map(part => (
+            {BODY_PARTS.filter(p => p.id === 'manual' || p.id === 'marker').map(part => (
               <button
                 key={part.id}
                 onClick={() => setSelectedPart(part.id)}

@@ -61,7 +61,7 @@ export default function AdminSidebar({ userEmail }: Props) {
   return (
     <>
       {/* ── Mobile top bar ── */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-30 bg-[#0f0f0f] border-b border-[#2a2a2a] flex items-center px-4 h-12">
+      <div className="lg:hidden fixed top-16 left-0 right-0 z-30 bg-[#0f0f0f] border-b border-[#2a2a2a] flex items-center px-4 h-12">
         <button
           onClick={() => setOpen(true)}
           className="text-gray-400 hover:text-white p-1 mr-3"

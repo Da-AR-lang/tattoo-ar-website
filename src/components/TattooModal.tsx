@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { X, Eye, Camera, ShoppingBag, Check } from 'lucide-react'
 import type { Tattoo } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
@@ -16,6 +17,12 @@ interface Props {
 export default function TattooModal({ tattoo, onClose }: Props) {
   const { has, add, remove } = useFittingRoomCtx()
   const inRoom = has(tattoo.id)
+  const router = useRouter()
+
+  const handleARClick = () => {
+    if (!inRoom) add(tattoo)
+    router.push('/ar')
+  }
 
   // Increment view count on open
   useEffect(() => {
@@ -88,12 +95,12 @@ export default function TattooModal({ tattoo, onClose }: Props) {
                 {inRoom ? <Check size={14} /> : <ShoppingBag size={14} />}
                 {inRoom ? '已加入' : '試衣間'}
               </button>
-              <Link
-                href="/ar"
+              <button
+                onClick={handleARClick}
                 className="flex items-center gap-2 bg-[#c9a84c] hover:bg-[#a07830] text-black text-sm font-semibold px-4 py-2 rounded-full transition-colors"
               >
                 <Camera size={14} /> AR 試穿
-              </Link>
+              </button>
             </div>
           </div>
 

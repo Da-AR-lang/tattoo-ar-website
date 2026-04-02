@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import {
   Camera, CameraOff, ZoomIn, ZoomOut, RotateCcw, Info,
   Move, RefreshCw, Hand, PersonStanding, Download, X, ShoppingBag, SwitchCamera
@@ -734,7 +735,8 @@ export default function ARClient() {
 
   useEffect(() => () => { cancelAnimationFrame(animFrameRef.current) }, [])
 
-  // Restart detector when body part changes mid-session
+  // Restart detecto
+  // r when body part changes mid-session
   useEffect(() => {
     if (!isStarted) return
     stopCamera()
@@ -785,6 +787,37 @@ export default function ARClient() {
     }
     if (detectionStatus === 'detected') return { text: `已偵測${currentPart.label}`, color: 'bg-green-500/20 text-green-400 border-green-500/30' }
     return { text: `請將${currentPart.label}對準鏡頭`, color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' }
+  }
+
+  // Guard: fitting room is empty
+  if (tattoos.length === 0) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0a0a0a] px-4">
+        <div className="w-full max-w-sm text-center">
+          <div className="flex justify-center mb-6">
+            <div className="w-20 h-20 rounded-full bg-[#c9a84c]/10 border border-[#c9a84c]/30 flex items-center justify-center">
+              <ShoppingBag size={36} className="text-[#c9a84c]" />
+            </div>
+          </div>
+          <h1 className="text-2xl font-bold text-white mb-2">試衣間是空的</h1>
+          <p className="text-gray-400 text-sm mb-8">請先到作品集挑選喜歡的刺青，加入試衣間後再開始 AR 試穿</p>
+          <div className="flex flex-col gap-3">
+            <Link
+              href="/gallery"
+              className="w-full bg-[#c9a84c] hover:bg-[#a07830] text-black font-semibold py-3 rounded-xl transition-colors"
+            >
+              前往作品集挑選
+            </Link>
+            <Link
+              href="/fitting-room"
+              className="w-full bg-[#1a1a1a] hover:bg-[#2a2a2a] text-gray-300 font-medium py-3 rounded-xl border border-[#2a2a2a] transition-colors"
+            >
+              查看試衣間
+            </Link>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

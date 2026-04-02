@@ -18,8 +18,8 @@ export default async function AdminLayout({
     <div className="flex min-h-screen">
       <AdminSidebar userEmail={session.user.email ?? ''} />
 
-      {/* Main content — no left margin on mobile, ml-60 on desktop */}
-      <main className="flex-1 lg:ml-60 min-w-0">
+      {/* Main content — pt-12 on mobile for fixed top bar, ml-60 on desktop */}
+      <main className="flex-1 lg:ml-60 min-w-0 pt-12 lg:pt-0">
         <div className="p-4 sm:p-6 lg:p-8">{children}</div>
       </main>
     </div>

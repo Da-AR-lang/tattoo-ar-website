@@ -11,6 +11,7 @@ export interface Style {
   id: string
   name: string
   slug: string
+  is_hidden: boolean
 }
 
 export interface Tattoo {

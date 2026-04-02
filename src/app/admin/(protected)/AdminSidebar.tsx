@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, Users, Upload, BarChart2,
-  LogOut, ImageIcon, Menu, X,
+  LogOut, ImageIcon, Menu, X, Tag,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -14,6 +14,7 @@ const navItems = [
   { href: '/admin/artists',    label: '刺青師管理', Icon: Users },
   { href: '/admin/upload',     label: '上傳作品',  Icon: Upload },
   { href: '/admin/tattoos',    label: '作品管理',  Icon: ImageIcon },
+  { href: '/admin/styles',     label: '風格管理',  Icon: Tag },
   { href: '/admin/analytics',  label: '統計分析',  Icon: BarChart2 },
 ]
 

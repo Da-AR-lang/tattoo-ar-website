@@ -13,7 +13,7 @@ export default async function GalleryPage() {
       .select('*, artist:artists(id, name, avatar_url)')
       .order('created_at', { ascending: false }),
     supabase.from('artists').select('id, name'),
-    supabase.from('styles').select('*').order('name'),
+    supabase.from('styles').select('*').eq('is_hidden', false).order('name'),
   ])
 
   return (

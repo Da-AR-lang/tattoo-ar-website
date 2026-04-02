@@ -64,9 +64,8 @@ const DETECT_W = 320  // process at reduced resolution for performance
 const ROI = { x1: 0.10, y1: 0.10, x2: 0.90, y2: 0.90 }
 
 /**
- * Detects a bright-green marker (sticker / cut paper) in the video frame.
- * Green is reliable because it's far from skin tone and easy to source.
- * Criteria: G is dominant channel, clearly saturated, not too dark.
+ * Detects a black marker (printed square+X) in the video frame.
+ * Black is detected by requiring all RGB channels to be very dark.
  */
 function detectMarkerInFrame(
   video: HTMLVideoElement,
@@ -89,11 +88,11 @@ function detectMarkerInFrame(
   ctx.drawImage(video, 0, 0, dw, dh)
   const { data } = ctx.getImageData(0, 0, dw, dh)
 
-  // Bright green detection: G dominant, saturated, not too dark
+  // Black detection: all channels very dark
   const darkMap = new Uint8Array(total)
   for (let i = 0; i < total; i++) {
     const r = data[i*4], g = data[i*4+1], b = data[i*4+2]
-    if (g > 80 && g > r * 1.4 && g > b * 1.5 && g - Math.max(r, b) > 35) darkMap[i] = 1
+    if (r < 60 && g < 60 && b < 60) darkMap[i] = 1
   }
 
   // BFS — find the largest connected dark cluster within ROI only
@@ -685,6 +684,28 @@ export default function ARClient() {
     a.click()
   }, [capturedImage])
 
+  // ─── Download printable marker (black square + X on white) ─────────────────
+  const downloadMarker = useCallback(() => {
+    const size = 500, border = 40, lw = 22
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+  <rect width="${size}" height="${size}" fill="white"/>
+  <rect x="${border/2}" y="${border/2}" width="${size-border}" height="${size-border}"
+        fill="none" stroke="#000000" stroke-width="${border}"/>
+  <line x1="${border}" y1="${border}" x2="${size-border}" y2="${size-border}"
+        stroke="#000000" stroke-width="${lw}" stroke-linecap="round"/>
+  <line x1="${size-border}" y1="${border}" x2="${border}" y2="${size-border}"
+        stroke="#000000" stroke-width="${lw}" stroke-linecap="round"/>
+</svg>`
+    const blob = new Blob([svg], { type: 'image/svg+xml' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'tattoo-ar-marker.svg'
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [])
+
   const stopCamera = useCallback(() => {
     cancelAnimationFrame(animFrameRef.current)
     if (videoRef.current?.srcObject) {
@@ -759,8 +780,8 @@ export default function ARClient() {
     if (currentPart.mode === 'manual') return { text: '拖曳移動刺青位置', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' }
     if (currentPart.mode === 'marker') {
       if (markerLocked) return { text: '已鎖定位置', color: 'bg-green-500/20 text-green-400 border-green-500/30' }
-      if (detectionStatus === 'detected') return { text: '偵測到綠色錨點', color: 'bg-green-500/20 text-green-400 border-green-500/30' }
-      return { text: '請將亮綠色貼紙對準框框', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30' }
+      if (detectionStatus === 'detected') return { text: '偵測到黑色錨點', color: 'bg-green-500/20 text-green-400 border-green-500/30' }
+      return { text: '請將黑色錨點對準框框', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30' }
     }
     if (detectionStatus === 'detected') return { text: `已偵測${currentPart.label}`, color: 'bg-green-500/20 text-green-400 border-green-500/30' }
     return { text: `請將${currentPart.label}對準鏡頭`, color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' }
@@ -788,43 +809,22 @@ export default function ARClient() {
           onTouchEnd={() => { isDraggingRef.current = false }}
         />
 
-        {/* Marker mode: targeting box + lock button */}
+        {/* Marker mode: lock button */}
         {isStarted && currentPart.mode === 'marker' && !markerLocked && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div
-              className={`relative transition-colors duration-300 ${
-                detectionStatus === 'detected'
-                  ? 'border-2 border-green-400'
-                  : 'border-2 border-dashed border-white/40'
-              }`}
-              style={{ width: '65%', height: '65%' }}
-            >
-              {/* Corner marks */}
-              {[['top-0 left-0','border-t-2 border-l-2'],['top-0 right-0','border-t-2 border-r-2'],
-                ['bottom-0 left-0','border-b-2 border-l-2'],['bottom-0 right-0','border-b-2 border-r-2']
-              ].map(([pos, border], i) => (
-                <div key={i} className={`absolute w-4 h-4 ${pos} ${border} ${detectionStatus === 'detected' ? 'border-green-400' : 'border-white/70'}`} />
-              ))}
-              {/* Lock button — appears when detected */}
-              {detectionStatus === 'detected' && (
-                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-auto flex flex-col items-center gap-1">
-                  <span className="text-green-400 text-xs font-medium">即時追蹤中</span>
-                  <button
-                    onClick={() => { lockedQuadRef.current = markerQuadRef.current; setMarkerLocked(true) }}
-                    className="flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs px-4 py-1.5 rounded-full shadow-lg transition-colors border border-white/20"
-                  >
-                    🔒 鎖定（固定位置）
-                  </button>
-                </div>
-              )}
-              {/* Hint when not detected */}
-              {detectionStatus !== 'detected' && (
-                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap flex items-center gap-1.5">
-                  <div className="w-3 h-3 rounded-sm bg-green-400 flex-shrink-0" />
-                  <span className="text-white/70 text-xs bg-black/50 px-2 py-1 rounded-full">將亮綠色貼紙對準框內</span>
-                </div>
-              )}
-            </div>
+          <div className="absolute bottom-36 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none">
+            {detectionStatus === 'detected' ? (
+              <>
+                <span className="text-green-400 text-xs font-medium">即時追蹤中</span>
+                <button
+                  className="pointer-events-auto flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs px-4 py-1.5 rounded-full shadow-lg transition-colors border border-white/20"
+                  onClick={() => { lockedQuadRef.current = markerQuadRef.current; setMarkerLocked(true) }}
+                >
+                  🔒 鎖定（固定位置）
+                </button>
+              </>
+            ) : (
+              <span className="text-white/70 text-xs bg-black/50 px-3 py-1.5 rounded-full">將黑色錨點對準鏡頭</span>
+            )}
           </div>
         )}
 
@@ -973,12 +973,22 @@ export default function ARClient() {
           {/* Mode hint */}
           <div className="mt-3 flex items-start gap-2 bg-[#c9a84c]/10 border border-[#c9a84c]/20 rounded-xl p-3">
             <Info size={13} className="text-[#c9a84c] flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-gray-400 leading-relaxed">
-              {currentPart.mode === 'hand' && '使用手部追蹤，請將手背朝向鏡頭'}
-              {currentPart.mode === 'pose' && '使用全身追蹤，請確保該部位清晰可見'}
-              {currentPart.mode === 'manual' && '自由模式：開啟相機後用手指/滑鼠拖曳刺青到想要的位置'}
-              {currentPart.mode === 'marker' && '將亮綠色貼紙貼在皮膚上，對準框框，刺青會即時跟著貼紙移動。想固定位置時按「鎖定」'}
-            </p>
+            <div className="flex flex-col gap-2 flex-1">
+              <p className="text-xs text-gray-400 leading-relaxed">
+                {currentPart.mode === 'hand' && '使用手部追蹤，請將手背朝向鏡頭'}
+                {currentPart.mode === 'pose' && '使用全身追蹤，請確保該部位清晰可見'}
+                {currentPart.mode === 'manual' && '自由模式：開啟相機後用手指/滑鼠拖曳刺青到想要的位置'}
+                {currentPart.mode === 'marker' && '列印錨點貼紙貼在皮膚上，對準框框，刺青即時跟著移動。轉動手部時刺青會跟著透視變形'}
+              </p>
+              {currentPart.mode === 'marker' && (
+                <button
+                  onClick={downloadMarker}
+                  className="flex items-center gap-1.5 self-start text-[#c9a84c] hover:text-white border border-[#c9a84c]/40 hover:border-[#c9a84c] text-xs px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <Download size={12} /> 下載錨點圖案
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

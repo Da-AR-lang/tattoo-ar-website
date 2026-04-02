@@ -24,10 +24,11 @@ export default function TattooModal({ tattoo, onClose }: Props) {
     router.push('/ar')
   }
 
-  // Increment view count on open
+  // Increment view count and record daily view on open
   useEffect(() => {
     const supabase = createClient()
     supabase.rpc('increment_view_count', { tattoo_id: tattoo.id })
+    supabase.from('views').insert({ tattoo_id: tattoo.id, viewed_at: new Date().toISOString() })
   }, [tattoo.id])
 
   // Close on Escape

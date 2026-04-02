@@ -5,7 +5,8 @@ import Image from 'next/image'
 import Link from 'next/link'
 import {
   Camera, CameraOff, ZoomIn, ZoomOut, RotateCcw, Info,
-  Move, RefreshCw, Hand, PersonStanding, Download, X, ShoppingBag, SwitchCamera
+  Move, RefreshCw, Hand, PersonStanding, Download, X, ShoppingBag, SwitchCamera,
+  ChevronDown, ChevronUp,
 } from 'lucide-react'
 import type { Tattoo } from '@/lib/types'
 import { useFittingRoomCtx } from '@/context/FittingRoomContext'
@@ -243,6 +244,13 @@ export default function ARClient() {
   useEffect(() => { tattooRotationRef.current = tattooRotation * (Math.PI / 180) }, [tattooRotation])
   const [detectionStatus, setDetectionStatus] = useState<'none' | 'detected' | 'lost'>('none')
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
+  const [panelOpen, setPanelOpen] = useState(true)
+
+  // Pinch gesture refs
+  const pinchStartDistRef = useRef(0)
+  const pinchStartScaleRef = useRef(1)
+  const pinchStartAngleRef = useRef(0)
+  const pinchStartRotRef = useRef(0)
 
   const currentPart = BODY_PARTS.find(p => p.id === selectedPart)!
 
@@ -745,6 +753,14 @@ export default function ARClient() {
   }, [selectedPart])
 
   // ─── Manual drag on overlay canvas ─────────────────────────────────────────
+  const getPinchDist = (touches: React.TouchList) => {
+    const dx = touches[0].clientX - touches[1].clientX
+    const dy = touches[0].clientY - touches[1].clientY
+    return Math.sqrt(dx * dx + dy * dy)
+  }
+  const getPinchAngle = (touches: React.TouchList) =>
+    Math.atan2(touches[1].clientY - touches[0].clientY, touches[1].clientX - touches[0].clientX) * 180 / Math.PI
+
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (currentPart.mode !== 'manual') return
     isDraggingRef.current = true
@@ -756,14 +772,27 @@ export default function ARClient() {
   }
   const handleCanvasTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
     if (currentPart.mode !== 'manual') return
-    isDraggingRef.current = true
-    const t = e.touches[0]
-    updateManualPos(t.clientX, t.clientY, e.currentTarget)
+    if (e.touches.length === 2) {
+      isDraggingRef.current = false
+      pinchStartDistRef.current = getPinchDist(e.touches)
+      pinchStartScaleRef.current = tattooScaleRef.current
+      pinchStartAngleRef.current = getPinchAngle(e.touches)
+      pinchStartRotRef.current = tattooRotationRef.current * (180 / Math.PI)
+    } else {
+      isDraggingRef.current = true
+      updateManualPos(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)
+    }
   }
   const handleCanvasTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (!isDraggingRef.current) return
-    const t = e.touches[0]
-    updateManualPos(t.clientX, t.clientY, e.currentTarget)
+    if (currentPart.mode !== 'manual') return
+    if (e.touches.length === 2) {
+      const scale = Math.max(0.3, Math.min(4, pinchStartScaleRef.current * getPinchDist(e.touches) / pinchStartDistRef.current))
+      setTattooScale(scale)
+      const delta = getPinchAngle(e.touches) - pinchStartAngleRef.current
+      setTattooRotation(Math.round(Math.max(-180, Math.min(180, pinchStartRotRef.current + delta))))
+    } else if (isDraggingRef.current) {
+      updateManualPos(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)
+    }
   }
 
   const updateManualPos = (clientX: number, clientY: number, el: HTMLElement) => {
@@ -833,7 +862,7 @@ export default function ARClient() {
         <canvas
           ref={overlayRef}
           className={`absolute inset-0 w-full h-full ${mirrored ? 'scale-x-[-1]' : ''} ${currentPart.mode === 'manual' ? 'cursor-move' : 'pointer-events-none'}`}
-          style={{ display: isStarted ? 'block' : 'none', mixBlendMode: 'multiply' }}
+          style={{ display: isStarted ? 'block' : 'none', mixBlendMode: 'multiply', touchAction: 'none' }}
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}
           onMouseUp={() => { isDraggingRef.current = false }}
@@ -953,6 +982,15 @@ export default function ARClient() {
           </>
         )}
 
+        {/* Panel toggle button */}
+        <button
+          onClick={() => setPanelOpen(o => !o)}
+          className="absolute bottom-3 right-3 z-10 bg-black/60 hover:bg-black/80 text-white p-2 rounded-full transition-colors"
+          title={panelOpen ? '隱藏面板' : '顯示面板'}
+        >
+          {panelOpen ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+        </button>
+
         {/* Captured photo preview modal */}
         {capturedImage && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
@@ -979,7 +1017,7 @@ export default function ARClient() {
       </div>
 
       {/* ── Sidebar ── */}
-      <div className="lg:w-80 bg-[#0f0f0f] border-t lg:border-t-0 lg:border-l border-[#2a2a2a] flex flex-col overflow-y-auto">
+      <div className={`lg:w-80 bg-[#0f0f0f] border-t lg:border-t-0 lg:border-l border-[#2a2a2a] flex flex-col overflow-y-auto transition-all ${panelOpen ? '' : 'hidden'}`}>
         {/* Body part selector */}
         <div className="p-5 border-b border-[#2a2a2a]">
           <h3 className="font-semibold mb-3 flex items-center gap-2">

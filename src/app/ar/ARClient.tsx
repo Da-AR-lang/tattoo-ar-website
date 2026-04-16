@@ -679,8 +679,12 @@ export default function ARClient() {
     ctx.restore()
     if (mirrored) ctx.setTransform(1, 0, 0, 1, 0, 0)
 
-    // Overlay tattoo (already in display coords)
+    // Overlay tattoo — mirror to match video, multiply to remove white background
+    if (mirrored) { ctx.translate(dW, 0); ctx.scale(-1, 1) }
+    ctx.globalCompositeOperation = 'multiply'
     ctx.drawImage(overlay, 0, 0, dW, dH)
+    ctx.globalCompositeOperation = 'source-over'
+    if (mirrored) ctx.setTransform(1, 0, 0, 1, 0, 0)
 
     setCapturedImage(canvas.toDataURL('image/jpeg', 0.92))
   }, [mirrored, getDisplayTransform])
@@ -741,7 +745,14 @@ export default function ARClient() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopCamera, startCamera])
 
-  useEffect(() => () => { cancelAnimationFrame(animFrameRef.current) }, [])
+  // Stop camera and animation when component unmounts (user leaves page)
+  useEffect(() => () => {
+    cancelAnimationFrame(animFrameRef.current)
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream
+      stream.getTracks().forEach(t => t.stop())
+    }
+  }, [])
 
   // Restart detecto
   // r when body part changes mid-session

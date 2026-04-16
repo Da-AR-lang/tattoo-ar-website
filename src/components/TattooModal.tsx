@@ -28,7 +28,9 @@ export default function TattooModal({ tattoo, onClose }: Props) {
   useEffect(() => {
     const supabase = createClient()
     supabase.rpc('increment_view_count', { tattoo_id: tattoo.id })
+      .then(({ error }) => { if (error) console.error('[view_count]', error) })
     supabase.from('views').insert({ tattoo_id: tattoo.id, viewed_at: new Date().toISOString() })
+      .then(({ error }) => { if (error) console.error('[views insert]', error) })
   }, [tattoo.id])
 
   // Close on Escape

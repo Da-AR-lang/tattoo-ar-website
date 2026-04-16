@@ -782,26 +782,26 @@ export default function ARClient() {
     updateManualPos(e.clientX, e.clientY, e.currentTarget)
   }
   const handleCanvasTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (currentPart.mode !== 'manual') return
     if (e.touches.length === 2) {
+      // Two-finger pinch: works in all modes
       isDraggingRef.current = false
       pinchStartDistRef.current = getPinchDist(e.touches)
       pinchStartScaleRef.current = tattooScaleRef.current
       pinchStartAngleRef.current = getPinchAngle(e.touches)
       pinchStartRotRef.current = tattooRotationRef.current * (180 / Math.PI)
-    } else {
+    } else if (currentPart.mode === 'manual') {
+      // One-finger drag: manual mode only
       isDraggingRef.current = true
       updateManualPos(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)
     }
   }
   const handleCanvasTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (currentPart.mode !== 'manual') return
     if (e.touches.length === 2) {
       const scale = Math.max(0.3, Math.min(4, pinchStartScaleRef.current * getPinchDist(e.touches) / pinchStartDistRef.current))
       setTattooScale(scale)
       const delta = getPinchAngle(e.touches) - pinchStartAngleRef.current
       setTattooRotation(Math.round(Math.max(-180, Math.min(180, pinchStartRotRef.current + delta))))
-    } else if (isDraggingRef.current) {
+    } else if (isDraggingRef.current && currentPart.mode === 'manual') {
       updateManualPos(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)
     }
   }
@@ -872,7 +872,7 @@ export default function ARClient() {
         />
         <canvas
           ref={overlayRef}
-          className={`absolute inset-0 w-full h-full ${mirrored ? 'scale-x-[-1]' : ''} ${currentPart.mode === 'manual' ? 'cursor-move' : 'pointer-events-none'}`}
+          className={`absolute inset-0 w-full h-full ${mirrored ? 'scale-x-[-1]' : ''} ${currentPart.mode === 'manual' ? 'cursor-move' : ''}`}
           style={{ display: isStarted ? 'block' : 'none', mixBlendMode: 'multiply', touchAction: 'none' }}
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}

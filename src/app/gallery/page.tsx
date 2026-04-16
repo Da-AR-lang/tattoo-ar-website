@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import GalleryClient from './GalleryClient'
 import type { Artist, Style, Tattoo } from '@/lib/types'
 
-export const revalidate = 60
+export const revalidate = 300
 
 export default async function GalleryPage() {
   const supabase = await createClient()

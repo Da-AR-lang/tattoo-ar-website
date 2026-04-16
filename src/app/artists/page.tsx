@@ -4,7 +4,7 @@ import Image from 'next/image'
 import { ExternalLink, ArrowRight } from 'lucide-react'
 import type { Artist } from '@/lib/types'
 
-export const revalidate = 60
+export const revalidate = 300
 
 export default async function ArtistsPage() {
   const supabase = await createClient()

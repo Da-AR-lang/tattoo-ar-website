@@ -1,8 +1,22 @@
 import { createClient } from '@/lib/supabase/server'
 import AnalyticsClient from './AnalyticsClient'
 
-export default async function AnalyticsPage() {
+const VALID_RANGES = [7, 30, 90, 365] as const
+type Range = typeof VALID_RANGES[number]
+
+export default async function AnalyticsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ range?: string }>
+}) {
+  const { range: rangeParam } = await searchParams
+  const days: Range = VALID_RANGES.includes(Number(rangeParam) as Range)
+    ? (Number(rangeParam) as Range)
+    : 30
+
   const supabase = await createClient()
+  const since = new Date()
+  since.setDate(since.getDate() - days)
 
   const [{ data: topTattoos }, { data: recentViews }, { data: styleStats }] = await Promise.all([
     supabase
@@ -13,21 +27,20 @@ export default async function AnalyticsPage() {
     supabase
       .from('views')
       .select('viewed_at')
-      .order('viewed_at', { ascending: false })
-      .limit(1000),
+      .gte('viewed_at', since.toISOString())
+      .order('viewed_at', { ascending: true }),
     supabase
       .from('tattoos')
       .select('style, view_count'),
   ])
 
-  // Aggregate views by day (last 30 days)
+  // Aggregate views by day
   const now = new Date()
   const dailyViews: Record<string, number> = {}
-  for (let i = 29; i >= 0; i--) {
+  for (let i = days - 1; i >= 0; i--) {
     const d = new Date(now)
     d.setDate(d.getDate() - i)
-    const key = d.toISOString().split('T')[0]
-    dailyViews[key] = 0
+    dailyViews[d.toISOString().split('T')[0]] = 0
   }
   recentViews?.forEach((v) => {
     const day = v.viewed_at.split('T')[0]
@@ -37,13 +50,11 @@ export default async function AnalyticsPage() {
   // Style stats
   const styleMap: Record<string, number> = {}
   styleStats?.forEach((t) => {
-    if (t.style) {
-      styleMap[t.style] = (styleMap[t.style] || 0) + (t.view_count || 0)
-    }
+    if (t.style) styleMap[t.style] = (styleMap[t.style] || 0) + (t.view_count || 0)
   })
 
   const dailyData = Object.entries(dailyViews).map(([date, count]) => ({
-    date: date.slice(5), // MM-DD
+    date: days <= 30 ? date.slice(5) : date.slice(2), // MM-DD or YY-MM-DD
     views: count,
   }))
 
@@ -57,6 +68,7 @@ export default async function AnalyticsPage() {
       topTattoos={(topTattoos as unknown[]) ?? []}
       dailyData={dailyData}
       styleData={styleData}
+      days={days}
     />
   )
 }

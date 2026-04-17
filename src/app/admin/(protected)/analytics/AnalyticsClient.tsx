@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import {
   BarChart,
   Bar,
@@ -22,27 +23,51 @@ interface TopTattoo {
   artist: { name: string } | null
 }
 
+const RANGES = [
+  { days: 7,   label: '近 7 天' },
+  { days: 30,  label: '近 30 天' },
+  { days: 90,  label: '近 3 個月' },
+  { days: 365, label: '近 1 年' },
+]
+
 interface Props {
   topTattoos: unknown[]
   dailyData: { date: string; views: number }[]
   styleData: { name: string; views: number }[]
+  days: number
 }
 
-export default function AnalyticsClient({ topTattoos, dailyData, styleData }: Props) {
+export default function AnalyticsClient({ topTattoos, dailyData, styleData, days }: Props) {
   const tattoos = topTattoos as TopTattoo[]
   const totalViews = dailyData.reduce((s, d) => s + d.views, 0)
+  const rangeLabel = RANGES.find(r => r.days === days)?.label ?? `近 ${days} 天`
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold">統計分析</h1>
-        <p className="text-gray-500 text-sm">近 30 天數據</p>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-8">
+        <h1 className="text-3xl font-bold flex-1">統計分析</h1>
+        {/* Range selector */}
+        <div className="flex items-center gap-1.5 bg-[#111111] border border-[#2a2a2a] rounded-xl p-1">
+          {RANGES.map(r => (
+            <Link
+              key={r.days}
+              href={`/admin/analytics?range=${r.days}`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                days === r.days
+                  ? 'bg-[#c9a84c] text-black'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              {r.label}
+            </Link>
+          ))}
+        </div>
       </div>
 
       {/* Summary */}
       <div className="grid grid-cols-2 gap-4 mb-8">
         <div className="bg-[#111111] border border-[#2a2a2a] rounded-2xl p-6">
-          <p className="text-gray-400 text-sm mb-1">近30天總瀏覽</p>
+          <p className="text-gray-400 text-sm mb-1">{rangeLabel}總瀏覽</p>
           <p className="text-3xl font-bold text-[#c9a84c]">{totalViews.toLocaleString()}</p>
         </div>
         <div className="bg-[#111111] border border-[#2a2a2a] rounded-2xl p-6">
@@ -53,7 +78,7 @@ export default function AnalyticsClient({ topTattoos, dailyData, styleData }: Pr
 
       {/* Daily views chart */}
       <div className="bg-[#111111] border border-[#2a2a2a] rounded-2xl p-6 mb-6">
-        <h2 className="font-semibold mb-6">每日瀏覽趨勢</h2>
+        <h2 className="font-semibold mb-6">每日瀏覽趨勢（{rangeLabel}）</h2>
         <ResponsiveContainer width="100%" height={220}>
           <LineChart data={dailyData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />

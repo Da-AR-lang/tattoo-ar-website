@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import Image from 'next/image'
-import { Pencil, Trash2, X, Check, Search, AlertTriangle } from 'lucide-react'
+import { Pencil, Trash2, X, Check, Search, AlertTriangle, Link2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { Tattoo, Artist, Style } from '@/lib/types'
 
@@ -27,6 +27,15 @@ export default function TattoosAdmin({ initialTattoos, artists, styles }: Props)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const copyLink = (id: string) => {
+    navigator.clipboard.writeText(`${window.location.origin}/gallery/${id}`)
+    setCopiedId(id)
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+    copyTimerRef.current = setTimeout(() => setCopiedId(null), 2000)
+  }
 
   const filtered = tattoos.filter(t => {
     const q = search.toLowerCase()
@@ -219,6 +228,13 @@ export default function TattoosAdmin({ initialTattoos, artists, styles }: Props)
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <button
+                          onClick={() => copyLink(tattoo.id)}
+                          className="text-gray-400 hover:text-blue-400 p-2 rounded-lg hover:bg-blue-400/10 transition-colors"
+                          title="複製連結"
+                        >
+                          {copiedId === tattoo.id ? <Check size={15} className="text-green-400" /> : <Link2 size={15} />}
+                        </button>
+                        <button
                           onClick={() => startEdit(tattoo)}
                           className="text-gray-400 hover:text-[#c9a84c] p-2 rounded-lg hover:bg-[#c9a84c]/10 transition-colors"
                         >
@@ -360,6 +376,13 @@ export default function TattoosAdmin({ initialTattoos, artists, styles }: Props)
                         <td className="px-4 py-3 text-gray-500 hidden lg:table-cell">{tattoo.view_count}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2 justify-end">
+                            <button
+                              onClick={() => copyLink(tattoo.id)}
+                              className="text-gray-400 hover:text-blue-400 p-1.5 rounded-lg hover:bg-blue-400/10 transition-colors"
+                              title="複製連結"
+                            >
+                              {copiedId === tattoo.id ? <Check size={15} className="text-green-400" /> : <Link2 size={15} />}
+                            </button>
                             <button
                               onClick={() => startEdit(tattoo)}
                               className="text-gray-400 hover:text-[#c9a84c] p-1.5 rounded-lg hover:bg-[#c9a84c]/10 transition-colors"

@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import Image from 'next/image'
-import { Plus, Edit2, Trash2, X, Check } from 'lucide-react'
+import { Plus, Edit2, Trash2, X, Check, Upload } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { Artist } from '@/lib/types'
 
@@ -26,6 +26,24 @@ export default function ArtistsAdmin({ artists: initial }: Props) {
   const [form, setForm] = useState<ArtistForm>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+
+  const uploadAvatar = async (file: File) => {
+    if (!file.type.startsWith('image/')) { setError('請選擇圖片檔案'); return }
+    setUploadingAvatar(true)
+    setError(null)
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await fetch('/api/upload', { method: 'POST', body: formData })
+    const data = await res.json()
+    if (!res.ok) {
+      setError('上傳失敗：' + (data.error ?? '未知錯誤'))
+    } else {
+      setForm(f => ({ ...f, avatar_url: data.url }))
+    }
+    setUploadingAvatar(false)
+  }
 
   const supabase = createClient()
 
@@ -146,13 +164,37 @@ export default function ArtistsAdmin({ artists: initial }: Props) {
               </div>
 
               <div>
-                <label className="text-sm text-gray-400 mb-1.5 block">頭像圖片 URL（Cloudinary 上傳後貼上）</label>
-                <input
-                  value={form.avatar_url}
-                  onChange={(e) => setForm({ ...form, avatar_url: e.target.value })}
-                  className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#c9a84c]/50"
-                  placeholder="https://res.cloudinary.com/..."
-                />
+                <label className="text-sm text-gray-400 mb-1.5 block">頭像圖片</label>
+                <div className="flex items-center gap-3">
+                  {/* Preview */}
+                  <div className="w-16 h-16 rounded-full overflow-hidden bg-[#2a2a2a] flex-shrink-0 flex items-center justify-center">
+                    {form.avatar_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={form.avatar_url} alt="預覽" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-[#c9a84c] font-bold text-xl">{form.name.charAt(0) || '?'}</span>
+                    )}
+                  </div>
+                  <div className="flex-1 flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => avatarInputRef.current?.click()}
+                      disabled={uploadingAvatar}
+                      className="flex items-center gap-2 text-sm border border-[#2a2a2a] hover:border-[#c9a84c]/50 text-gray-400 hover:text-white px-3 py-2 rounded-xl transition-colors disabled:opacity-50"
+                    >
+                      {uploadingAvatar
+                        ? <><div className="w-4 h-4 border-2 border-[#c9a84c] border-t-transparent rounded-full animate-spin" /> 上傳中...</>
+                        : <><Upload size={14} /> 上傳頭像圖片</>}
+                    </button>
+                    {form.avatar_url && (
+                      <button type="button" onClick={() => setForm(f => ({ ...f, avatar_url: '' }))} className="text-xs text-gray-500 hover:text-red-400 transition-colors text-left">
+                        移除圖片
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <input ref={avatarInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) uploadAvatar(f) }} />
               </div>
 
               <div>

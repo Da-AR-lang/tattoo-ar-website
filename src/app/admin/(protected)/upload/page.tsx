@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Upload, X, Check, ImageIcon } from 'lucide-react'
+import { Upload, X, Check, ImageIcon, Copy, ExternalLink } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { Artist, Style } from '@/lib/types'
 
@@ -11,6 +11,8 @@ export default function UploadPage() {
   const [uploading, setUploading] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [newTattooId, setNewTattooId] = useState<string | null>(null)
+  const [linkCopied, setLinkCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -89,20 +91,20 @@ export default function UploadPage() {
       .map((t) => t.trim())
       .filter(Boolean)
 
-    const { error } = await supabase.from('tattoos').insert({
+    const { data: inserted, error } = await supabase.from('tattoos').insert({
       artist_id: form.artist_id,
       image_url: form.image_url.trim(),
       title: form.title.trim() || null,
       style: form.style || null,
       tags,
-    })
+    }).select('id').single()
 
     if (error) {
       setError('儲存失敗：' + error.message)
     } else {
       setSuccess(true)
+      setNewTattooId(inserted?.id ?? null)
       setForm({ artist_id: form.artist_id, image_url: '', title: '', style: form.style, tags: '' })
-      setTimeout(() => setSuccess(false), 3000)
     }
     setUploading(false)
   }
@@ -234,9 +236,34 @@ export default function UploadPage() {
         {error && (
           <p className="text-red-400 text-sm bg-red-400/10 px-4 py-2 rounded-lg">{error}</p>
         )}
-        {success && (
-          <div className="flex items-center gap-2 text-green-400 text-sm bg-green-400/10 px-4 py-2 rounded-lg">
-            <Check size={16} /> 新增成功！
+        {success && newTattooId && (
+          <div className="flex flex-col gap-2 bg-green-400/10 border border-green-400/20 px-4 py-3 rounded-lg">
+            <div className="flex items-center gap-2 text-green-400 text-sm">
+              <Check size={16} /> 新增成功！
+            </div>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-xs text-gray-400 bg-[#0a0a0a] px-3 py-1.5 rounded-lg truncate">
+                {typeof window !== 'undefined' ? `${window.location.origin}/gallery/${newTattooId}` : `/gallery/${newTattooId}`}
+              </code>
+              <button
+                type="button"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(`${window.location.origin}/gallery/${newTattooId}`)
+                  setLinkCopied(true)
+                  setTimeout(() => setLinkCopied(false), 2000)
+                }}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-white border border-[#2a2a2a] px-2.5 py-1.5 rounded-lg transition-colors flex-shrink-0"
+              >
+                {linkCopied ? <><Check size={12} className="text-green-400" /> 已複製</> : <><Copy size={12} /> 複製</>}
+              </button>
+              <a
+                href={`/gallery/${newTattooId}`}
+                target="_blank"
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-white border border-[#2a2a2a] px-2.5 py-1.5 rounded-lg transition-colors flex-shrink-0"
+              >
+                <ExternalLink size={12} /> 開啟
+              </a>
+            </div>
           </div>
         )}
 

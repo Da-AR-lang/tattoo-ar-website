@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { X, Eye, Camera, ShoppingBag, Check } from 'lucide-react'
+import { X, Eye, Camera, ShoppingBag, Check, Share2 } from 'lucide-react'
 import type { Tattoo } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
 import { useFittingRoomCtx } from '@/context/FittingRoomContext'
@@ -18,10 +18,21 @@ export default function TattooModal({ tattoo, onClose }: Props) {
   const { has, add, remove } = useFittingRoomCtx()
   const inRoom = has(tattoo.id)
   const router = useRouter()
+  const [copied, setCopied] = useState(false)
 
   const handleARClick = () => {
     if (!inRoom) add(tattoo)
     router.push('/ar')
+  }
+
+  const handleShare = async () => {
+    const url = `${window.location.origin}/gallery/${tattoo.id}`
+    if (navigator.share) {
+      try { await navigator.share({ title: tattoo.title ?? '刺青作品', url }); return } catch {}
+    }
+    await navigator.clipboard.writeText(url)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   // Increment view count and record daily view on open
@@ -97,6 +108,12 @@ export default function TattooModal({ tattoo, onClose }: Props) {
               >
                 {inRoom ? <Check size={14} /> : <ShoppingBag size={14} />}
                 {inRoom ? '已加入' : '試衣間'}
+              </button>
+              <button
+                onClick={handleShare}
+                className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white border border-[#2a2a2a] hover:border-white/30 px-3 py-2 rounded-full transition-colors"
+              >
+                {copied ? <><Check size={13} className="text-green-400" /> 已複製</> : <><Share2 size={13} /> 分享</>}
               </button>
               <button
                 onClick={handleARClick}

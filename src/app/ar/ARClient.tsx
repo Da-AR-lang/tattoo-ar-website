@@ -872,7 +872,7 @@ export default function ARClient() {
         />
         <canvas
           ref={overlayRef}
-          className={`absolute inset-0 w-full h-full ${mirrored ? 'scale-x-[-1]' : ''} ${currentPart.mode === 'manual' ? 'cursor-move' : ''}`}
+          className={`absolute inset-0 w-full h-full ${mirrored ? 'scale-x-[-1]' : ''} ${currentPart.mode === 'manual' ? 'cursor-move' : 'pointer-events-none'}`}
           style={{ display: isStarted ? 'block' : 'none', mixBlendMode: 'multiply', touchAction: 'none' }}
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}

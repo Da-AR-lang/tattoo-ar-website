@@ -55,7 +55,7 @@ function TattooCard({ tattoo, onClick }: { tattoo: Tattoo; onClick: () => void }
       <div className="relative">
         <Image
           src={tattoo.image_url}
-          alt={tattoo.title || '刺青作品'}
+          alt={tattoo.alt_text || tattoo.title || '刺青作品'}
           width={400}
           height={300}
           className="w-full h-auto object-cover group-hover:scale-105 transition-transform duration-500"

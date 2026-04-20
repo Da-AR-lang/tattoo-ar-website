@@ -66,7 +66,7 @@ export default function TattooModal({ tattoo, onClose }: Props) {
         <div className="relative flex-1 min-h-0 overflow-hidden bg-white">
           <Image
             src={tattoo.image_url}
-            alt={tattoo.title || '刺青作品'}
+            alt={tattoo.alt_text || tattoo.title || '刺青作品'}
             width={800}
             height={600}
             className="w-full h-auto max-h-[65vh] object-contain"

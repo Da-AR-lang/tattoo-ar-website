@@ -19,6 +19,7 @@ export interface Tattoo {
   artist_id: string
   image_url: string
   title: string
+  alt_text: string | null
   style: string
   tags: string[]
   view_count: number

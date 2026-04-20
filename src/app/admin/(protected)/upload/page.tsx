@@ -21,6 +21,7 @@ export default function UploadPage() {
     artist_id: '',
     image_url: '',
     title: '',
+    alt_text: '',
     style: '',
     tags: '',
   })
@@ -95,6 +96,7 @@ export default function UploadPage() {
       artist_id: form.artist_id,
       image_url: form.image_url.trim(),
       title: form.title.trim() || null,
+      alt_text: form.alt_text.trim() || null,
       style: form.style || null,
       tags,
     }).select('id').single()
@@ -104,7 +106,7 @@ export default function UploadPage() {
     } else {
       setSuccess(true)
       setNewTattooId(inserted?.id ?? null)
-      setForm({ artist_id: form.artist_id, image_url: '', title: '', style: form.style, tags: '' })
+      setForm({ artist_id: form.artist_id, image_url: '', title: '', alt_text: '', style: form.style, tags: '' })
     }
     setUploading(false)
   }
@@ -231,6 +233,18 @@ export default function UploadPage() {
             className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#c9a84c]/50"
             placeholder="龍, 傳統, 黑白..."
           />
+        </div>
+
+        {/* Alt Text */}
+        <div>
+          <label className="text-sm text-gray-400 mb-1.5 block">圖片 Alt 文字（SEO）</label>
+          <input
+            value={form.alt_text}
+            onChange={(e) => setForm({ ...form, alt_text: e.target.value })}
+            className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#c9a84c]/50"
+            placeholder="台北刺青 黑灰寫實龍 Tattoo Artist Taiwan"
+          />
+          <p className="text-xs text-gray-600 mt-1">留空則自動使用作品標題。建議加入風格、部位、台北刺青等關鍵字。</p>
         </div>
 
         {error && (

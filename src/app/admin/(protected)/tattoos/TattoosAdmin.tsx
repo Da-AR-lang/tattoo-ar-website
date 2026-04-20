@@ -14,6 +14,7 @@ interface Props {
 
 interface EditForm {
   title: string
+  alt_text: string
   artist_id: string
   style: string
   tags: string
@@ -23,7 +24,7 @@ export default function TattoosAdmin({ initialTattoos, artists, styles }: Props)
   const [tattoos, setTattoos] = useState<Tattoo[]>(initialTattoos)
   const [search, setSearch] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState<EditForm>({ title: '', artist_id: '', style: '', tags: '' })
+  const [editForm, setEditForm] = useState<EditForm>({ title: '', alt_text: '', artist_id: '', style: '', tags: '' })
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -51,6 +52,7 @@ export default function TattoosAdmin({ initialTattoos, artists, styles }: Props)
     setEditingId(tattoo.id)
     setEditForm({
       title: tattoo.title ?? '',
+      alt_text: tattoo.alt_text ?? '',
       artist_id: tattoo.artist_id,
       style: tattoo.style ?? '',
       tags: tattoo.tags?.join(', ') ?? '',
@@ -76,6 +78,7 @@ export default function TattoosAdmin({ initialTattoos, artists, styles }: Props)
       .from('tattoos')
       .update({
         title: editForm.title.trim() || null,
+        alt_text: editForm.alt_text.trim() || null,
         artist_id: editForm.artist_id,
         style: editForm.style || null,
         tags,
@@ -91,6 +94,7 @@ export default function TattoosAdmin({ initialTattoos, artists, styles }: Props)
             ? {
                 ...t,
                 title: editForm.title.trim(),
+                alt_text: editForm.alt_text.trim() || null,
                 artist_id: editForm.artist_id,
                 style: editForm.style,
                 tags,
@@ -186,6 +190,12 @@ export default function TattoosAdmin({ initialTattoos, artists, styles }: Props)
                         onChange={e => setEditForm(f => ({ ...f, tags: e.target.value }))}
                         className="w-full bg-[#0a0a0a] border border-[#3a3a3a] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c]/50"
                         placeholder="標籤（逗號分隔）"
+                      />
+                      <input
+                        value={editForm.alt_text}
+                        onChange={e => setEditForm(f => ({ ...f, alt_text: e.target.value }))}
+                        className="w-full bg-[#0a0a0a] border border-[#3a3a3a] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c]/50"
+                        placeholder="Alt 文字（SEO 關鍵字）"
                       />
                       <div className="flex gap-2">
                         <button
@@ -325,6 +335,12 @@ export default function TattoosAdmin({ initialTattoos, artists, styles }: Props)
                             onChange={e => setEditForm(f => ({ ...f, tags: e.target.value }))}
                             className="w-full bg-[#0a0a0a] border border-[#3a3a3a] rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-[#c9a84c]/50"
                             placeholder="標籤（逗號分隔）"
+                          />
+                          <input
+                            value={editForm.alt_text}
+                            onChange={e => setEditForm(f => ({ ...f, alt_text: e.target.value }))}
+                            className="w-full mt-1.5 bg-[#0a0a0a] border border-[#3a3a3a] rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-[#c9a84c]/50"
+                            placeholder="Alt 文字（SEO）"
                           />
                         </td>
                         <td className="px-4 py-3 text-gray-500 hidden lg:table-cell">{tattoo.view_count}</td>

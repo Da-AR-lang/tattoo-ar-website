@@ -33,7 +33,7 @@ export default async function TattooPage({ params }: { params: Promise<{ id: str
         <div className="bg-white">
           <Image
             src={t.image_url}
-            alt={t.title || '刺青作品'}
+            alt={t.alt_text || t.title || '刺青作品'}
             width={800}
             height={600}
             className="w-full h-auto max-h-[70vh] object-contain"

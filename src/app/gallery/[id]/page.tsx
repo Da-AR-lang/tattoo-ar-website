@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ArrowLeft, Eye } from 'lucide-react'
 import type { Tattoo, Artist } from '@/lib/types'
 import ShareButton from './ShareButton'
+import ARButton from './ARButton'
 
 export const revalidate = 300
 
@@ -94,12 +95,7 @@ export default async function TattooPage({ params }: { params: Promise<{ id: str
             >
               瀏覽更多作品
             </Link>
-            <Link
-              href="/ar"
-              className="flex-1 text-center bg-[#c9a84c] hover:bg-[#a07830] text-black font-semibold py-2.5 rounded-xl transition-colors text-sm"
-            >
-              AR 試穿
-            </Link>
+            <ARButton tattoo={t} />
           </div>
         </div>
       </div>

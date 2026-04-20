@@ -21,11 +21,23 @@ export default function StylesAdmin({ styles: initial }: Props) {
   const slugify = (str: string) =>
     str.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '')
 
+  const generateUniqueSlug = (str: string) => {
+    let slug = slugify(str)
+    if (!slug) slug = Date.now().toString()
+    const existingSlugs = styles.map((s) => s.slug)
+    if (existingSlugs.includes(slug)) {
+      let counter = 2
+      while (existingSlugs.includes(`${slug}-${counter}`)) counter++
+      slug = `${slug}-${counter}`
+    }
+    return slug
+  }
+
   const handleAdd = async () => {
     if (!name.trim()) { setError('風格名稱為必填'); return }
     setSaving(true)
     setError(null)
-    const slug = slugify(name)
+    const slug = generateUniqueSlug(name)
     const { data, error } = await supabase
       .from('styles')
       .insert({ name: name.trim(), slug, is_hidden: false })

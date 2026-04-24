@@ -6,7 +6,7 @@ import Link from 'next/link'
 import {
   Camera, CameraOff, ZoomIn, ZoomOut, RotateCcw, Info,
   Move, RefreshCw, Hand, PersonStanding, Download, X, ShoppingBag, SwitchCamera,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, FlipHorizontal2,
 } from 'lucide-react'
 import type { Tattoo } from '@/lib/types'
 import { useFittingRoomCtx } from '@/context/FittingRoomContext'
@@ -231,6 +231,7 @@ export default function ARClient() {
   const [tattooScale, setTattooScale] = useState(1.0)
   const [tattooOpacity, setTattooOpacity] = useState(0.85)
   const [tattooRotation, setTattooRotation] = useState(0) // degrees
+  const [tattooFlipped, setTattooFlipped] = useState(false)
   const [mirrored, setMirrored] = useState(true)
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user')
 
@@ -238,12 +239,15 @@ export default function ARClient() {
   const tattooScaleRef = useRef(1.0)
   const tattooOpacityRef = useRef(0.85)
   const tattooRotationRef = useRef(0)
+  const tattooFlippedRef = useRef(false)
   const facingModeRef = useRef<'user' | 'environment'>('user')
   useEffect(() => { tattooScaleRef.current = tattooScale }, [tattooScale])
   useEffect(() => { tattooOpacityRef.current = tattooOpacity }, [tattooOpacity])
   useEffect(() => { tattooRotationRef.current = tattooRotation * (Math.PI / 180) }, [tattooRotation])
+  useEffect(() => { tattooFlippedRef.current = tattooFlipped }, [tattooFlipped])
   const [detectionStatus, setDetectionStatus] = useState<'none' | 'detected' | 'lost'>('none')
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
+  const [capturedName, setCapturedName] = useState<string | null>(null)
   const [panelOpen, setPanelOpen] = useState(true)
 
   // Pinch gesture refs
@@ -299,6 +303,18 @@ export default function ARClient() {
     const offCtx = off.getContext('2d')!
     offCtx.clearRect(0, 0, off.width, off.height)
     offCtx.drawImage(img, 0, 0, off.width, off.height)
+    // Opacity > 1: self-multiply to deepen ink only (white/transparent background unchanged)
+    let remaining = Math.max(0, tattooOpacityRef.current - 1)
+    if (remaining > 0) {
+      offCtx.globalCompositeOperation = 'multiply'
+      while (remaining > 0) {
+        offCtx.globalAlpha = Math.min(1, remaining)
+        offCtx.drawImage(img, 0, 0, off.width, off.height)
+        remaining -= 1
+      }
+      offCtx.globalAlpha = 1
+      offCtx.globalCompositeOperation = 'source-over'
+    }
     return off
   }, []) // reads via refs — stable
 
@@ -315,10 +331,11 @@ export default function ARClient() {
     const off = buildOffscreen(w, h)
     if (!off) return
     ctx.save()
-    ctx.globalAlpha = tattooOpacityRef.current
+    ctx.globalAlpha = Math.min(1, tattooOpacityRef.current)
     ctx.translate(cx, cy)
     // Combine landmark angle + user rotation here (display ctx is large — no clipping)
     ctx.rotate(angle + tattooRotationRef.current)
+    if (tattooFlippedRef.current) ctx.scale(-1, 1)
     ctx.drawImage(off, -w / 2, -h / 2, w, h)
     ctx.restore()
   }, [buildOffscreen]) // reads latest values via refs
@@ -344,6 +361,18 @@ export default function ARClient() {
     const offCtx = off.getContext('2d')!
     offCtx.clearRect(0, 0, iw, ih)
     offCtx.drawImage(img, 0, 0, iw, ih)
+    // Opacity > 1: self-multiply to deepen ink only (white/transparent background unchanged)
+    let remaining = Math.max(0, tattooOpacityRef.current - 1)
+    if (remaining > 0) {
+      offCtx.globalCompositeOperation = 'multiply'
+      while (remaining > 0) {
+        offCtx.globalAlpha = Math.min(1, remaining)
+        offCtx.drawImage(img, 0, 0, iw, ih)
+        remaining -= 1
+      }
+      offCtx.globalAlpha = 1
+      offCtx.globalCompositeOperation = 'source-over'
+    }
 
     // Rotate source quad corners around image center — avoids offscreen clipping
     const rot = tattooRotationRef.current
@@ -353,13 +382,12 @@ export default function ARClient() {
       x: mx + (x - mx) * cos - (y - my) * sin,
       y: my + (x - mx) * sin + (y - my) * cos,
     })
-    const srcQuad = [
-      rotPt(0, 0), rotPt(iw, 0),
-      rotPt(iw, ih), rotPt(0, ih),
-    ]
+    const srcQuad = tattooFlippedRef.current
+      ? [rotPt(iw, 0), rotPt(0, 0), rotPt(0, ih), rotPt(iw, ih)]
+      : [rotPt(0, 0), rotPt(iw, 0), rotPt(iw, ih), rotPt(0, ih)]
 
     ctx.save()
-    ctx.globalAlpha = tattooOpacityRef.current
+    ctx.globalAlpha = Math.min(1, tattooOpacityRef.current)
 
     const n = subdivisions
     for (let i = 0; i < n; i++) {
@@ -687,15 +715,17 @@ export default function ARClient() {
     if (mirrored) ctx.setTransform(1, 0, 0, 1, 0, 0)
 
     setCapturedImage(canvas.toDataURL('image/jpeg', 0.92))
-  }, [mirrored, getDisplayTransform])
+    setCapturedName(selectedTattoo?.title?.trim() || null)
+  }, [mirrored, getDisplayTransform, selectedTattoo])
 
   const downloadPhoto = useCallback(() => {
     if (!capturedImage) return
+    const safeName = (capturedName || 'tattoo-ar').replace(/[\\/?%*:|"<>]/g, '-').trim() || 'tattoo-ar'
     const a = document.createElement('a')
     a.href = capturedImage
-    a.download = `tattoo-ar-${Date.now()}.jpg`
+    a.download = `${safeName}-${Date.now()}.jpg`
     a.click()
-  }, [capturedImage])
+  }, [capturedImage, capturedName])
 
   // ─── Download printable marker (black square + X on white) ─────────────────
   const downloadMarker = useCallback(() => {
@@ -971,13 +1001,13 @@ export default function ARClient() {
                 <span className="text-white text-xs w-9 text-center">{Math.round(tattooScale * 100)}%</span>
                 <button onClick={() => setTattooScale(s => Math.min(4, s + 0.1))} className="text-white hover:text-[#c9a84c] transition-colors p-1"><ZoomIn size={16} /></button>
                 <div className="w-px h-4 bg-white/20" />
-                <input type="range" min="0.3" max="1" step="0.05" value={tattooOpacity} onChange={e => setTattooOpacity(Number(e.target.value))} className="w-14 sm:w-20 accent-[#c9a84c]" />
+                <input type="range" min="0.3" max="3.5" step="0.05" value={tattooOpacity} onChange={e => setTattooOpacity(Number(e.target.value))} className="w-14 sm:w-20 accent-[#c9a84c]" />
                 <div className="w-px h-4 bg-white/20" />
                 <button onClick={capturePhoto} className="flex items-center gap-1 bg-white hover:bg-gray-100 text-black font-semibold px-2.5 py-1 rounded-full transition-colors text-xs whitespace-nowrap">
                   <Camera size={13} /> 拍照
                 </button>
               </div>
-              {/* Row 2: rotation */}
+              {/* Row 2: rotation + flip */}
               <div className="flex items-center gap-2 bg-black/70 backdrop-blur-sm px-3 py-2 rounded-full w-full justify-center">
                 <RotateCcw size={13} className="text-gray-400 flex-shrink-0" />
                 <input
@@ -988,6 +1018,14 @@ export default function ARClient() {
                 />
                 <span className="text-white text-xs w-9 text-center">{tattooRotation}°</span>
                 <button onClick={() => setTattooRotation(0)} className="text-gray-400 hover:text-white text-xs transition-colors whitespace-nowrap">重置</button>
+                <div className="w-px h-4 bg-white/20" />
+                <button
+                  onClick={() => setTattooFlipped(f => !f)}
+                  title="左右翻轉刺青"
+                  className={`p-1 rounded transition-colors ${tattooFlipped ? 'text-[#c9a84c]' : 'text-gray-400 hover:text-white'}`}
+                >
+                  <FlipHorizontal2 size={14} />
+                </button>
               </div>
             </div>
           </>

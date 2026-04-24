@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { Tattoo } from '@/lib/types'
 
 const STORAGE_KEY = 'ink-ar-fitting-room'
@@ -38,5 +38,8 @@ export function useFittingRoom() {
 
   const clear = useCallback(() => setItems([]), [])
 
-  return { items, add, remove, has, clear, count: items.length }
+  return useMemo(
+    () => ({ items, add, remove, has, clear, count: items.length }),
+    [items, add, remove, has, clear]
+  )
 }

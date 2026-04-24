@@ -23,6 +23,8 @@ create table tattoos (
   id uuid primary key default uuid_generate_v4(),
   artist_id uuid references artists(id) on delete cascade,
   image_url text not null,
+  width integer,
+  height integer,
   title text,
   style text,
   tags text[] default '{}',

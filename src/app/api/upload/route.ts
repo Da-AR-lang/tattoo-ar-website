@@ -45,5 +45,9 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  return NextResponse.json({ url: data.secure_url })
+  return NextResponse.json({
+    url: data.secure_url,
+    width: data.width,
+    height: data.height,
+  })
 }

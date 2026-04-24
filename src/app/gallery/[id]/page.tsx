@@ -3,11 +3,34 @@ import { notFound } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowLeft, Eye } from 'lucide-react'
+import type { Metadata } from 'next'
 import type { Tattoo, Artist } from '@/lib/types'
 import ShareButton from './ShareButton'
 import ARButton from './ARButton'
 
 export const revalidate = 300
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('tattoos')
+    .select('title, image_url, tags, style, artist:artists(name)')
+    .eq('id', id)
+    .single()
+  if (!data) return { title: '作品不存在' }
+  const t = data as unknown as { title: string | null; image_url: string; tags: string[] | null; style: string | null; artist: { name: string }[] | { name: string } | null }
+  const title = t.title || '刺青作品'
+  const artistName = Array.isArray(t.artist) ? t.artist[0]?.name : t.artist?.name
+  const descParts = [t.style, artistName && `by ${artistName}`, t.tags?.join('、')].filter(Boolean)
+  const description = descParts.length ? descParts.join(' · ') : '探索這件刺青作品，或直接開啟 AR 虛擬試穿'
+  return {
+    title,
+    description,
+    openGraph: { title, description, images: [t.image_url], type: 'article' },
+    twitter: { card: 'summary_large_image', title, description, images: [t.image_url] },
+  }
+}
 
 export default async function TattooPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -34,8 +57,9 @@ export default async function TattooPage({ params }: { params: Promise<{ id: str
           <Image
             src={t.image_url}
             alt={[t.title, ...(t.tags ?? []), t.alt_text].filter(Boolean).join(' ') || '刺青作品'}
-            width={800}
-            height={600}
+            width={t.width && t.width > 0 ? t.width : 800}
+            height={t.height && t.height > 0 ? t.height : 600}
+            priority
             className="w-full h-auto max-h-[70vh] object-contain"
           />
         </div>

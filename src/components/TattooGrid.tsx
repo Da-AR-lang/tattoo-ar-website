@@ -30,10 +30,11 @@ export default function TattooGrid({ tattoos }: Props) {
         className="masonry-grid"
         columnClassName="masonry-grid-column"
       >
-        {tattoos.map((tattoo) => (
+        {tattoos.map((tattoo, i) => (
           <TattooCard
             key={tattoo.id}
             tattoo={tattoo}
+            priority={i < 4}
             onClick={() => setSelected(tattoo)}
           />
         ))}
@@ -46,7 +47,9 @@ export default function TattooGrid({ tattoos }: Props) {
   )
 }
 
-function TattooCard({ tattoo, onClick }: { tattoo: Tattoo; onClick: () => void }) {
+function TattooCard({ tattoo, onClick, priority = false }: { tattoo: Tattoo; onClick: () => void; priority?: boolean }) {
+  const w = tattoo.width && tattoo.width > 0 ? tattoo.width : 400
+  const h = tattoo.height && tattoo.height > 0 ? tattoo.height : 500
   return (
     <div
       className="group relative cursor-pointer overflow-hidden rounded-xl bg-white border border-[#2a2a2a] hover:border-[#c9a84c]/40 transition-all duration-300"
@@ -56,8 +59,9 @@ function TattooCard({ tattoo, onClick }: { tattoo: Tattoo; onClick: () => void }
         <Image
           src={tattoo.image_url}
           alt={[tattoo.title, ...(tattoo.tags ?? []), tattoo.alt_text].filter(Boolean).join(' ') || '刺青作品'}
-          width={400}
-          height={300}
+          width={w}
+          height={h}
+          priority={priority}
           className="w-full h-auto object-cover group-hover:scale-105 transition-transform duration-500"
           sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
         />

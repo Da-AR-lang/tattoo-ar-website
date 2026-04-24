@@ -35,13 +35,16 @@ export default function TattooModal({ tattoo, onClose }: Props) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  // Increment view count and record daily view on open
+  // Count as a real view only after 1.5s — avoids spam when flipping through
   useEffect(() => {
-    const supabase = createClient()
-    supabase.rpc('increment_view_count', { tattoo_id: tattoo.id })
-      .then(({ error }) => { if (error) console.error('[view_count]', error) })
-    supabase.from('views').insert({ tattoo_id: tattoo.id, viewed_at: new Date().toISOString() })
-      .then(({ error }) => { if (error) console.error('[views insert]', error) })
+    const timer = setTimeout(() => {
+      const supabase = createClient()
+      supabase.rpc('increment_view_count', { tattoo_id: tattoo.id })
+        .then(({ error }) => { if (error) console.error('[view_count]', error) })
+      supabase.from('views').insert({ tattoo_id: tattoo.id, viewed_at: new Date().toISOString() })
+        .then(({ error }) => { if (error) console.error('[views insert]', error) })
+    }, 1500)
+    return () => clearTimeout(timer)
   }, [tattoo.id])
 
   // Close on Escape
@@ -67,8 +70,8 @@ export default function TattooModal({ tattoo, onClose }: Props) {
           <Image
             src={tattoo.image_url}
             alt={[tattoo.title, ...(tattoo.tags ?? []), tattoo.alt_text].filter(Boolean).join(' ') || '刺青作品'}
-            width={800}
-            height={600}
+            width={tattoo.width && tattoo.width > 0 ? tattoo.width : 800}
+            height={tattoo.height && tattoo.height > 0 ? tattoo.height : 600}
             className="w-full h-auto max-h-[65vh] object-contain"
           />
           <button

@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Upload, X, Check, ImageIcon, Copy, ExternalLink } from 'lucide-react'
+import { Upload, X, Check, ImageIcon, Copy, ExternalLink, Wand2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { Artist, Style } from '@/lib/types'
+import { backfillDimensions, countMissingDimensions } from './actions'
 
 export default function UploadPage() {
   const [artists, setArtists] = useState<Artist[]>([])
@@ -20,11 +21,17 @@ export default function UploadPage() {
   const [form, setForm] = useState({
     artist_id: '',
     image_url: '',
+    width: 0,
+    height: 0,
     title: '',
     alt_text: '',
     style: '',
     tags: '',
   })
+
+  const [missingDims, setMissingDims] = useState<number | null>(null)
+  const [backfillRunning, setBackfillRunning] = useState(false)
+  const [backfillMsg, setBackfillMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const supabase = createClient()
@@ -35,7 +42,30 @@ export default function UploadPage() {
       setArtists((a as Artist[]) ?? [])
       setStyles((s as Style[]) ?? [])
     })
+    countMissingDimensions().then(setMissingDims).catch(() => setMissingDims(null))
   }, [])
+
+  const runBackfill = async () => {
+    setBackfillRunning(true)
+    setBackfillMsg(null)
+    try {
+      let totalUpdated = 0
+      let totalFailed = 0
+      while (true) {
+        const res = await backfillDimensions(20)
+        totalUpdated += res.updated
+        totalFailed += res.failed
+        setMissingDims(res.remaining)
+        setBackfillMsg(`處理中… 已更新 ${totalUpdated}，跳過 ${totalFailed}，剩餘 ${res.remaining}`)
+        if (res.processed === 0 || res.remaining === 0) break
+      }
+      setBackfillMsg(`完成。更新 ${totalUpdated} 筆，跳過 ${totalFailed} 筆。`)
+    } catch (e) {
+      setBackfillMsg('回填失敗：' + (e instanceof Error ? e.message : '未知錯誤'))
+    } finally {
+      setBackfillRunning(false)
+    }
+  }
 
   const uploadImageToCloudinary = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -59,7 +89,12 @@ export default function UploadPage() {
     if (!res.ok) {
       setError('圖片上傳失敗：' + (data.error ?? '未知錯誤'))
     } else {
-      setForm((prev) => ({ ...prev, image_url: data.url }))
+      setForm((prev) => ({
+        ...prev,
+        image_url: data.url,
+        width: data.width ?? 0,
+        height: data.height ?? 0,
+      }))
     }
     setUploadingImage(false)
   }, [])
@@ -95,6 +130,8 @@ export default function UploadPage() {
     const { data: inserted, error } = await supabase.from('tattoos').insert({
       artist_id: form.artist_id,
       image_url: form.image_url.trim(),
+      width: form.width || null,
+      height: form.height || null,
       title: form.title.trim() || null,
       alt_text: form.alt_text.trim() || null,
       style: form.style || null,
@@ -106,7 +143,7 @@ export default function UploadPage() {
     } else {
       setSuccess(true)
       setNewTattooId(inserted?.id ?? null)
-      setForm({ artist_id: form.artist_id, image_url: '', title: '', alt_text: '', style: form.style, tags: '' })
+      setForm({ artist_id: form.artist_id, image_url: '', width: 0, height: 0, title: '', alt_text: '', style: form.style, tags: '' })
     }
     setUploading(false)
   }
@@ -114,6 +151,26 @@ export default function UploadPage() {
   return (
     <div>
       <h1 className="text-3xl font-bold mb-8">上傳作品</h1>
+
+      {missingDims !== null && missingDims > 0 && (
+        <div className="max-w-2xl mb-6 bg-[#111111] border border-[#2a2a2a] rounded-2xl p-4 flex items-center gap-3">
+          <Wand2 size={18} className="text-[#c9a84c] flex-shrink-0" />
+          <div className="flex-1 text-sm">
+            <p className="text-white">
+              有 <span className="text-[#c9a84c] font-semibold">{missingDims}</span> 件舊作品缺少尺寸資訊
+            </p>
+            {backfillMsg && <p className="text-gray-400 text-xs mt-0.5">{backfillMsg}</p>}
+          </div>
+          <button
+            type="button"
+            onClick={runBackfill}
+            disabled={backfillRunning}
+            className="bg-[#c9a84c] hover:bg-[#a07830] text-black font-semibold text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {backfillRunning ? '回填中…' : '一鍵回填'}
+          </button>
+        </div>
+      )}
 
       <form
         onSubmit={handleSubmit}
@@ -150,7 +207,7 @@ export default function UploadPage() {
               />
               <button
                 type="button"
-                onClick={() => setForm((prev) => ({ ...prev, image_url: '' }))}
+                onClick={() => setForm((prev) => ({ ...prev, image_url: '', width: 0, height: 0 }))}
                 className="absolute top-2 right-2 bg-black/70 hover:bg-black text-white rounded-full p-1.5 transition-colors"
               >
                 <X size={16} />

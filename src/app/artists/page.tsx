@@ -1,8 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
 import type { Artist } from '@/lib/types'
+import type { Metadata } from 'next'
 import ArtistCard from './ArtistCard'
 
 export const revalidate = 300
+
+export const metadata: Metadata = {
+  title: '刺青師',
+  description: '認識我們的頂尖刺青藝術家，找到最適合你的刺青師',
+}
 
 export default async function ArtistsPage() {
   const supabase = await createClient()

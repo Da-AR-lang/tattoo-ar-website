@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import { ExternalLink, ArrowLeft } from 'lucide-react'
+import type { Metadata } from 'next'
 import type { Artist, Tattoo } from '@/lib/types'
 import TattooGrid from '@/components/TattooGrid'
 
@@ -10,6 +11,36 @@ export const revalidate = 60
 
 interface Props {
   params: Promise<{ id: string }>
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { id } = await params
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('artists')
+    .select('name, bio, avatar_url')
+    .eq('id', id)
+    .single()
+  if (!data) return { title: '刺青師不存在' }
+  const a = data as Pick<Artist, 'name' | 'bio' | 'avatar_url'>
+  const title = a.name
+  const description = a.bio?.slice(0, 160) || `認識刺青師 ${a.name} 的作品風格`
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      images: a.avatar_url ? [a.avatar_url] : undefined,
+      type: 'profile',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      images: a.avatar_url ? [a.avatar_url] : undefined,
+    },
+  }
 }
 
 export default async function ArtistDetailPage({ params }: Props) {

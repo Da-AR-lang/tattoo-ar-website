@@ -4,6 +4,7 @@ import "./globals.css";
 import Navbar from "@/components/Navbar";
 import ScrollToTop from "@/components/ScrollToTop";
 import { FittingRoomProvider } from "@/context/FittingRoomContext";
+import { getSiteUrl } from "@/lib/siteUrl";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -11,12 +12,22 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "INK AR | 刺青虛擬試穿",
+  metadataBase: new URL(getSiteUrl()),
+  title: {
+    default: "INK AR | 刺青虛擬試穿",
+    template: "%s | INK AR",
+  },
   description: "探索刺青藝術，透過 AR 虛擬試穿找到屬於你的刺青風格",
   openGraph: {
     title: "INK AR | 刺青虛擬試穿",
     description: "探索刺青藝術，透過 AR 虛擬試穿找到屬於你的刺青風格",
     type: "website",
+    locale: "zh_TW",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "INK AR | 刺青虛擬試穿",
+    description: "探索刺青藝術，透過 AR 虛擬試穿找到屬於你的刺青風格",
   },
 };
 

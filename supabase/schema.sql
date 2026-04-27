@@ -5,7 +5,8 @@ create extension if not exists "uuid-ossp";
 create table styles (
   id uuid primary key default uuid_generate_v4(),
   name text not null,
-  slug text not null unique
+  slug text not null unique,
+  is_hidden boolean default false
 );
 
 -- Artists table
@@ -26,6 +27,7 @@ create table tattoos (
   width integer,
   height integer,
   title text,
+  alt_text text,
   style text,
   tags text[] default '{}',
   view_count integer default 0,
@@ -96,15 +98,24 @@ create policy "Admin insert styles" on styles for insert with check (public.is_a
 create policy "Admin update styles" on styles for update using (public.is_admin());
 create policy "Admin delete styles" on styles for delete using (public.is_admin());
 
--- View-count writes: clients call the RPC; no direct insert policy on `views`.
-create or replace function public.record_tattoo_view(tattoo_id uuid)
+-- View-count writes: rate-limited via /api/track-view; only service_role can call.
+create or replace function public.record_tattoo_view(tattoo_id uuid, ip_hash text)
 returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  insert into views (tattoo_id) values (tattoo_id);
+  if exists (
+    select 1 from views v
+    where v.tattoo_id = record_tattoo_view.tattoo_id
+      and v.ip_hash  = record_tattoo_view.ip_hash
+      and v.viewed_at > now() - interval '1 hour'
+  ) then return; end if;
+
+  insert into views (tattoo_id, ip_hash) values (tattoo_id, ip_hash);
   update tattoos set view_count = view_count + 1 where id = tattoo_id;
 end;
 $$;
 
-revoke all on function public.record_tattoo_view(uuid) from public;
-grant execute on function public.record_tattoo_view(uuid) to anon, authenticated;
+revoke all on function public.record_tattoo_view(uuid, text) from public, anon, authenticated;
+
+create index if not exists views_tattoo_ip_time_idx
+  on views (tattoo_id, ip_hash, viewed_at desc);

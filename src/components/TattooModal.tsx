@@ -6,7 +6,6 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { X, Eye, Camera, ShoppingBag, Check, Share2 } from 'lucide-react'
 import type { Tattoo } from '@/lib/types'
-import { createClient } from '@/lib/supabase/client'
 import { useFittingRoomCtx } from '@/context/FittingRoomContext'
 
 interface Props {
@@ -38,9 +37,12 @@ export default function TattooModal({ tattoo, onClose }: Props) {
   // Count as a real view only after 1.5s — avoids spam when flipping through
   useEffect(() => {
     const timer = setTimeout(() => {
-      const supabase = createClient()
-      supabase.rpc('record_tattoo_view', { tattoo_id: tattoo.id })
-        .then(({ error }) => { if (error) console.error('[record_view]', error) })
+      fetch('/api/track-view', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tattoo_id: tattoo.id }),
+        keepalive: true,
+      }).catch(err => console.error('[track-view]', err))
     }, 1500)
     return () => clearTimeout(timer)
   }, [tattoo.id])

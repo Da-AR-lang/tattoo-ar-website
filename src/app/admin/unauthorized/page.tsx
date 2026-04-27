@@ -26,8 +26,8 @@ export default function UnauthorizedPage() {
           </div>
         </div>
 
-        <h1 className="text-2xl font-bold text-white mb-2">未登入</h1>
-        <p className="text-gray-400 text-sm mb-8">您沒有權限存取此頁面，請先登入</p>
+        <h1 className="text-2xl font-bold text-white mb-2">無權限</h1>
+        <p className="text-gray-400 text-sm mb-8">請以管理員帳號登入</p>
 
         <div className="bg-[#111111] border border-[#2a2a2a] rounded-2xl p-6 mb-6">
           <p className="text-gray-500 text-sm mb-3">自動跳轉登入頁面</p>

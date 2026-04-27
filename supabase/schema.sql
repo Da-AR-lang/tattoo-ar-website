@@ -68,21 +68,43 @@ alter table styles enable row level security;
 create policy "Public read artists" on artists for select using (true);
 create policy "Public read tattoos" on tattoos for select using (true);
 create policy "Public read styles" on styles for select using (true);
-create policy "Public insert views" on views for insert with check (true);
 
--- Admin write access (authenticated users only)
-create policy "Auth insert artists" on artists for insert with check (auth.role() = 'authenticated');
-create policy "Auth update artists" on artists for update using (auth.role() = 'authenticated');
-create policy "Auth delete artists" on artists for delete using (auth.role() = 'authenticated');
+-- Admin email whitelist. To add/remove admin: edit the array below and re-run this block.
+create or replace function public.is_admin() returns boolean
+language sql stable security definer set search_path = public, auth as $$
+  select coalesce(
+    lower(auth.jwt() ->> 'email') = any (
+      array['clown1138@gmail.com', 'yykoart@gmail.com']
+    ),
+    false
+  );
+$$;
 
-create policy "Auth insert tattoos" on tattoos for insert with check (auth.role() = 'authenticated');
-create policy "Auth update tattoos" on tattoos for update using (auth.role() = 'authenticated');
-create policy "Auth delete tattoos" on tattoos for delete using (auth.role() = 'authenticated');
+revoke all on function public.is_admin() from public;
+grant execute on function public.is_admin() to anon, authenticated;
 
--- Function to increment view count
-create or replace function increment_view_count(tattoo_id uuid)
-returns void as $$
+-- Admin write access
+create policy "Admin insert artists" on artists for insert with check (public.is_admin());
+create policy "Admin update artists" on artists for update using (public.is_admin());
+create policy "Admin delete artists" on artists for delete using (public.is_admin());
+
+create policy "Admin insert tattoos" on tattoos for insert with check (public.is_admin());
+create policy "Admin update tattoos" on tattoos for update using (public.is_admin());
+create policy "Admin delete tattoos" on tattoos for delete using (public.is_admin());
+
+create policy "Admin insert styles" on styles for insert with check (public.is_admin());
+create policy "Admin update styles" on styles for update using (public.is_admin());
+create policy "Admin delete styles" on styles for delete using (public.is_admin());
+
+-- View-count writes: clients call the RPC; no direct insert policy on `views`.
+create or replace function public.record_tattoo_view(tattoo_id uuid)
+returns void
+language plpgsql security definer set search_path = public as $$
 begin
+  insert into views (tattoo_id) values (tattoo_id);
   update tattoos set view_count = view_count + 1 where id = tattoo_id;
 end;
-$$ language plpgsql security definer;
+$$;
+
+revoke all on function public.record_tattoo_view(uuid) from public;
+grant execute on function public.record_tattoo_view(uuid) to anon, authenticated;

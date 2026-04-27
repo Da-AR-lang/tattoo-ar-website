@@ -1,20 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isAdminEmail } from '@/lib/admin-auth'
 import crypto from 'crypto'
 
+const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif'])
+const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
+
 export async function POST(request: NextRequest) {
-  // Verify admin is logged in
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
+  if (!user || !isAdminEmail(user.email)) {
     return NextResponse.json({ error: '未授權' }, { status: 401 })
   }
 
   const formData = await request.formData()
-  const file = formData.get('file') as File
+  const file = formData.get('file')
 
-  if (!file) {
+  if (!(file instanceof File)) {
     return NextResponse.json({ error: '未提供檔案' }, { status: 400 })
+  }
+
+  if (!ALLOWED_MIME.has(file.type)) {
+    return NextResponse.json(
+      { error: '僅支援 JPEG / PNG / WebP / AVIF 圖檔' },
+      { status: 400 }
+    )
+  }
+
+  if (file.size > MAX_BYTES) {
+    return NextResponse.json(
+      { error: '檔案過大（上限 10MB）' },
+      { status: 400 }
+    )
   }
 
   // Build signed Cloudinary upload request

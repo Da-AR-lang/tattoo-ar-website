@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { isAdminEmail } from '@/lib/admin-auth'
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -36,9 +37,9 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  const { data: { session } } = await supabase.auth.getSession()
+  const { data: { user } } = await supabase.auth.getUser()
 
-  if (!session) {
+  if (!user || !isAdminEmail(user.email)) {
     return NextResponse.redirect(new URL('/admin/unauthorized', request.url))
   }
 

@@ -1,6 +1,15 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { isAdminEmail } from '@/lib/admin-auth'
+
+async function assertAdmin() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user || !isAdminEmail(user.email)) {
+    throw new Error('未授權')
+  }
+}
 
 interface BackfillResult {
   processed: number
@@ -42,6 +51,7 @@ async function probeDimensions(url: string): Promise<{ width: number; height: nu
 }
 
 export async function countMissingDimensions(): Promise<number> {
+  await assertAdmin()
   const supabase = await createClient()
   const { count } = await supabase
     .from('tattoos')
@@ -51,6 +61,7 @@ export async function countMissingDimensions(): Promise<number> {
 }
 
 export async function backfillDimensions(batchSize = 20): Promise<BackfillResult> {
+  await assertAdmin()
   const supabase = await createClient()
 
   const { data } = await supabase
